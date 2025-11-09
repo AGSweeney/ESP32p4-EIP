@@ -43,7 +43,7 @@
 
 ## Runtime Integration Notes
 - Ethernet link events from `esp_event` update the Identity object’s state and clear/set recoverable fault flags
-- GPIO33 is configured as a status LED drive and is toggled from the output assembly (bit 0 of assembly 150) rather than directly mirroring the Ethernet link state
+- GPIO33 is configured as a status LED drive and is toggled from the output assembly (bit 0 of assembly 150)
 - Mutex-protected `struct netif*` handle allows the sample application and OpENer to share the active lwIP netif
 - Encapsulation layer uses OpENer’s standard socket abstraction and ESP32 FreeRTOS tasks for TCP/UDP servicing
 
