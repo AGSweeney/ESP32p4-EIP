@@ -44,9 +44,17 @@ esp_err_t mcp23017_read_register(mcp23017_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t mcp23017_write_gpio(mcp23017_t *dev, uint16_t value);
 esp_err_t mcp23017_read_gpio(mcp23017_t *dev, uint16_t *value);
+esp_err_t mcp23017_set_direction(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_set_polarity(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_set_pullups(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_update_gpio_mask(mcp23017_t *dev, uint16_t mask, uint16_t value);
+esp_err_t mcp23017_write_pin(mcp23017_t *dev, uint8_t pin, bool level);
+esp_err_t mcp23017_read_pin(mcp23017_t *dev, uint8_t pin, bool *level);
 ```
 
 - `mcp23017_init`: pass an I²C device handle you created with `i2c_master_bus_add_device()`. Optionally supply a configuration structure to initialise direction, polarity, pull-ups, etc., in one go. Pass `NULL` to leave all registers untouched.
+- Runtime helpers (`mcp23017_set_direction`, `mcp23017_set_pullups`, `mcp23017_set_polarity`) let you reconfigure the port without touching the rest of the register map.
+- `mcp23017_update_gpio_mask` and the `write_pin` / `read_pin` wrappers simplify per-bit manipulation while preserving the untouched pins.
 - `mcp23017_write_gpio` / `mcp23017_read_gpio`: treat the expander’s 16-bit port as a single value (GPIOB = upper byte, GPIOA = lower byte). Useful after configuring IODIR as outputs or inputs.
 - `mcp23017_write_register` / `mcp23017_read_register`: direct access to any register when you need fine-grained control.
 
@@ -77,10 +85,10 @@ if (!mcp23017_init(&expander, dev_handle, &cfg)) {
 }
 
 // Drive lower four GPA pins high, others low
-mcp23017_write_gpio(&expander, 0x000F);
+mcp23017_update_gpio_mask(&expander, 0x000F, 0x0005);
 
-uint16_t inputs;
-mcp23017_read_gpio(&expander, &inputs);
+bool input_level = false;
+mcp23017_read_pin(&expander, 12, &input_level);
 ```
 
 ## Notes

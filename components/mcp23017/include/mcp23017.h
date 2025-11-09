@@ -64,6 +64,12 @@ esp_err_t mcp23017_read_register(mcp23017_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t mcp23017_write_gpio(mcp23017_t *dev, uint16_t value);
 esp_err_t mcp23017_read_gpio(mcp23017_t *dev, uint16_t *value);
+esp_err_t mcp23017_set_direction(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_set_polarity(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_set_pullups(mcp23017_t *dev, uint16_t mask);
+esp_err_t mcp23017_update_gpio_mask(mcp23017_t *dev, uint16_t mask, uint16_t value);
+esp_err_t mcp23017_write_pin(mcp23017_t *dev, uint8_t pin, bool level);
+esp_err_t mcp23017_read_pin(mcp23017_t *dev, uint8_t pin, bool *level);
 
 #ifdef __cplusplus
 }

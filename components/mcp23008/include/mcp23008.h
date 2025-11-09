@@ -47,6 +47,12 @@ esp_err_t mcp23008_read_register(mcp23008_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t mcp23008_write_gpio(mcp23008_t *dev, uint8_t value);
 esp_err_t mcp23008_read_gpio(mcp23008_t *dev, uint8_t *value);
+esp_err_t mcp23008_set_direction(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_set_polarity(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_set_pullups(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_update_gpio_mask(mcp23008_t *dev, uint8_t mask, uint8_t value);
+esp_err_t mcp23008_write_pin(mcp23008_t *dev, uint8_t pin, bool level);
+esp_err_t mcp23008_read_pin(mcp23008_t *dev, uint8_t pin, bool *level);
 
 #ifdef __cplusplus
 }

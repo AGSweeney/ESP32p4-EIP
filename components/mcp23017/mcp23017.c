@@ -120,3 +120,89 @@ esp_err_t mcp23017_read_gpio(mcp23017_t *dev, uint16_t *value)
     return ESP_OK;
 }
 
+static esp_err_t write_pair(mcp23017_t *dev, uint8_t reg_a, uint16_t value)
+{
+    esp_err_t err = write_reg(dev, reg_a, (uint8_t)(value & 0xFF));
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    return write_reg(dev, reg_a + 1, (uint8_t)(value >> 8));
+}
+
+static esp_err_t read_pair(mcp23017_t *dev, uint8_t reg_a, uint16_t *value)
+{
+    uint8_t low = 0;
+    uint8_t high = 0;
+    esp_err_t err = read_reg(dev, reg_a, &low);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    err = read_reg(dev, reg_a + 1, &high);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    *value = ((uint16_t)high << 8) | low;
+    return ESP_OK;
+}
+
+static esp_err_t update_pair(mcp23017_t *dev, uint8_t reg_a, uint16_t mask, uint16_t value)
+{
+    uint16_t current = 0;
+    esp_err_t err = read_pair(dev, reg_a, &current);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    current = (current & ~mask) | (value & mask);
+    return write_pair(dev, reg_a, current);
+}
+
+esp_err_t mcp23017_set_direction(mcp23017_t *dev, uint16_t mask)
+{
+    return write_pair(dev, MCP23017_REG_IODIRA, mask);
+}
+
+esp_err_t mcp23017_set_polarity(mcp23017_t *dev, uint16_t mask)
+{
+    return write_pair(dev, MCP23017_REG_IPOLA, mask);
+}
+
+esp_err_t mcp23017_set_pullups(mcp23017_t *dev, uint16_t mask)
+{
+    return write_pair(dev, MCP23017_REG_GPPUA, mask);
+}
+
+esp_err_t mcp23017_update_gpio_mask(mcp23017_t *dev, uint16_t mask, uint16_t value)
+{
+    return update_pair(dev, MCP23017_REG_OLATA, mask, value);
+}
+
+esp_err_t mcp23017_write_pin(mcp23017_t *dev, uint8_t pin, bool level)
+{
+    if (pin > 15)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint16_t mask = (uint16_t)1U << pin;
+    return mcp23017_update_gpio_mask(dev, mask, level ? mask : 0);
+}
+
+esp_err_t mcp23017_read_pin(mcp23017_t *dev, uint8_t pin, bool *level)
+{
+    if (pin > 15 || !level)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint16_t value = 0;
+    esp_err_t err = mcp23017_read_gpio(dev, &value);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    *level = (value >> pin) & 0x1;
+    return ESP_OK;
+}
+

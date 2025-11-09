@@ -38,11 +38,18 @@ esp_err_t mcp23008_read_register(mcp23008_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t mcp23008_write_gpio(mcp23008_t *dev, uint8_t value);
 esp_err_t mcp23008_read_gpio(mcp23008_t *dev, uint8_t *value);
+esp_err_t mcp23008_set_direction(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_set_polarity(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_set_pullups(mcp23008_t *dev, uint8_t mask);
+esp_err_t mcp23008_update_gpio_mask(mcp23008_t *dev, uint8_t mask, uint8_t value);
+esp_err_t mcp23008_write_pin(mcp23008_t *dev, uint8_t pin, bool level);
+esp_err_t mcp23008_read_pin(mcp23008_t *dev, uint8_t pin, bool *level);
 ```
 
 - Call `mcp23008_init` once you have created an ESP-IDF master device handle (`i2c_master_bus_add_device`). Pass a `mcp23008_config_t` to initialise direction/pullups, or `NULL` to leave registers untouched.
-- Use `mcp23008_write_gpio`/`mcp23008_read_gpio` to drive or sample the 8-bit port when the device is in output/input mode.
-- `mcp23008_write_register` / `mcp23008_read_register` give you direct access to any register if you need more control.
+- Use `mcp23008_set_direction`, `mcp23008_set_pullups`, and `mcp23008_set_polarity` at runtime to adjust the port configuration.
+- `mcp23008_update_gpio_mask` (and the convenience helpers `mcp23008_write_pin` / `mcp23008_read_pin`) let you manipulate individual bits without affecting the remaining port state.
+- `mcp23008_write_register` / `mcp23008_read_register` give you direct access to any register if you need lower-level control.
 
 ## Quick Example
 
@@ -64,10 +71,10 @@ if (!mcp23008_init(&expander, io_handle, &cfg)) {
 }
 
 // Toggle lower nibble LEDs
-mcp23008_write_gpio(&expander, 0x0F);
+mcp23008_update_gpio_mask(&expander, 0x0F, 0x05);
 
-uint8_t inputs;
-mcp23008_read_gpio(&expander, &inputs);
+bool button_pressed = false;
+mcp23008_read_pin(&expander, 6, &button_pressed);
 ```
 
 ## Notes

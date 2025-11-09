@@ -34,9 +34,16 @@ esp_err_t tca9534_read_register(tca9534_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t tca9534_write_gpio(tca9534_t *dev, uint8_t value);
 esp_err_t tca9534_read_gpio(tca9534_t *dev, uint8_t *value);
+esp_err_t tca9534_set_direction(tca9534_t *dev, uint8_t mask);
+esp_err_t tca9534_set_polarity(tca9534_t *dev, uint8_t mask);
+esp_err_t tca9534_update_gpio_mask(tca9534_t *dev, uint8_t mask, uint8_t value);
+esp_err_t tca9534_write_pin(tca9534_t *dev, uint8_t pin, bool level);
+esp_err_t tca9534_read_pin(tca9534_t *dev, uint8_t pin, bool *level);
 ```
 
 - `tca9534_init`: Provide an ESP-IDF I²C device handle and optional config. When `cfg` is `NULL` no registers are touched.
+- Use the direction/polarity helpers to modify configuration at runtime without reinitialising the device.
+- `tca9534_update_gpio_mask` and the single-pin helpers simplify bit-wise updates while preserving untouched outputs.
 - `tca9534_write_gpio` / `tca9534_read_gpio`: Set or sample the 8-bit port (use after configuring direction bits).
 - The low-level register helpers let you fine-tune polarity, interrupts, etc., as required.
 
@@ -58,11 +65,11 @@ if (!tca9534_init(&expander, dev_handle, &cfg)) {
 }
 
 // Drive lower nibble high (assuming direction configured as outputs)
-tca9534_write_gpio(&expander, 0x0F);
+tca9534_update_gpio_mask(&expander, 0x0F, 0x05);
 
-uint8_t inputs = 0;
-tca9534_read_gpio(&expander, &inputs);
-ESP_LOGI("TCA9534", "Input state 0x%02X", inputs);
+bool button;
+tca9534_read_pin(&expander, 6, &button);
+ESP_LOGI("TCA9534", "Button state %d", button);
 ```
 
 ## Notes

@@ -36,6 +36,11 @@ esp_err_t tca9534_read_register(tca9534_t *dev, uint8_t reg, uint8_t *value);
 
 esp_err_t tca9534_write_gpio(tca9534_t *dev, uint8_t value);
 esp_err_t tca9534_read_gpio(tca9534_t *dev, uint8_t *value);
+esp_err_t tca9534_set_direction(tca9534_t *dev, uint8_t mask);
+esp_err_t tca9534_set_polarity(tca9534_t *dev, uint8_t mask);
+esp_err_t tca9534_update_gpio_mask(tca9534_t *dev, uint8_t mask, uint8_t value);
+esp_err_t tca9534_write_pin(tca9534_t *dev, uint8_t pin, bool level);
+esp_err_t tca9534_read_pin(tca9534_t *dev, uint8_t pin, bool *level);
 
 #ifdef __cplusplus
 }

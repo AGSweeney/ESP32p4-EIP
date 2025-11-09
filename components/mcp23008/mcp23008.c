@@ -79,3 +79,61 @@ esp_err_t mcp23008_read_gpio(mcp23008_t *dev, uint8_t *value)
     return read_reg(dev, MCP23008_REG_GPIO, value);
 }
 
+static esp_err_t update_reg(mcp23008_t *dev, uint8_t reg, uint8_t mask, uint8_t value)
+{
+    uint8_t current = 0;
+    esp_err_t err = read_reg(dev, reg, &current);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    current = (current & ~mask) | (value & mask);
+    return write_reg(dev, reg, current);
+}
+
+esp_err_t mcp23008_set_direction(mcp23008_t *dev, uint8_t mask)
+{
+    return write_reg(dev, MCP23008_REG_IODIR, mask);
+}
+
+esp_err_t mcp23008_set_polarity(mcp23008_t *dev, uint8_t mask)
+{
+    return write_reg(dev, MCP23008_REG_IPOL, mask);
+}
+
+esp_err_t mcp23008_set_pullups(mcp23008_t *dev, uint8_t mask)
+{
+    return write_reg(dev, MCP23008_REG_GPPU, mask);
+}
+
+esp_err_t mcp23008_update_gpio_mask(mcp23008_t *dev, uint8_t mask, uint8_t value)
+{
+    return update_reg(dev, MCP23008_REG_OLAT, mask, value);
+}
+
+esp_err_t mcp23008_write_pin(mcp23008_t *dev, uint8_t pin, bool level)
+{
+    if (pin > 7)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t mask = 1U << pin;
+    return mcp23008_update_gpio_mask(dev, mask, level ? mask : 0);
+}
+
+esp_err_t mcp23008_read_pin(mcp23008_t *dev, uint8_t pin, bool *level)
+{
+    if (pin > 7 || !level)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t value = 0;
+    esp_err_t err = mcp23008_read_gpio(dev, &value);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    *level = (value >> pin) & 0x1;
+    return ESP_OK;
+}
+
