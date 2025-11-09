@@ -29,7 +29,7 @@
 - **MCP4725 – 12-bit I²C DAC**  
   Digital-to-analog converter with EEPROM for storing default output voltage. [Datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/22039d.pdf)
 - **NAU7802 – 24-bit bridge ADC**  
-  Dual-channel ADC with PGA for load-cell and precision measurement front ends. [Datasheet](https://www.nuvoton.com/export/resource-files/DS_NAU7802_EN_Rev1.7.pdf)
+  Dual-channel ADC with PGA for load-cell and precision measurement front ends. [Datasheet](https://www.nuvoton.com/resource-files/NAU7802%20Data%20Sheet%20V1.7.pdf)
 - **PCF8574 – 8-bit I²C GPIO expander**  
   Open-drain remote I/O extension suitable for keypads and LED drivers. [Datasheet](https://www.nxp.com/docs/en/data-sheet/PCF8574_PCF8574A.pdf)
 - **PCF8575 – 16-bit I²C GPIO expander**  
