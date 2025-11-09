@@ -1,0 +1,239 @@
+$ EZ-EDS Version 3.38.20251024 Generated Electronic Data Sheet
+
+[File]
+        DescText = "ESP32-P4 EIP Adapter";
+        CreateDate = 11-08-2025;
+        CreateTime = 10:50:49;
+        ModDate = 11-08-2025;
+        ModTime = 10:50:47;
+        Revision = 1.0;
+        HomeURL = "http://www.AGSweeney.net";
+
+[Device]
+        VendCode = 55512;
+        VendName = "AGSweeney Automation";
+        ProdType = 7;
+        ProdTypeStr = "General Purpose Discrete I/O";
+        ProdCode = 1;
+        MajRev = 1;
+        MinRev = 1;
+        ProdName = "ESP32P4-EIP";
+
+[Device Classification]
+        Class1 = EtherNetIP;
+
+[Params]
+        Param1 =
+                0,
+                ,,
+                0x0000,
+                0xC8,
+                4,
+                "Exclusive Owner RPI",
+                "us",
+                "Requested Packet Interval for the Exclusive Owner connection",
+                1000,,10000,
+                ,,,,
+                ,,,,
+                ;
+        Param2 =
+                0,
+                ,,
+                0x0000,
+                0xC8,
+                4,
+                "Input Only RPI",
+                "us",
+                "Requested Packet Interval for the Input Only connection",
+                1000,,10000,
+                ,,,,
+                ,,,,
+                ;
+        Param3 =
+                0,
+                ,,
+                0x0000,
+                0xC8,
+                4,
+                "Listen Only RPI",
+                "us",
+                "Requested Packet Interval for the Listen Only connection",
+                1000,,10000,
+                ,,,,
+                ,,,,
+                ;
+
+[Assembly]
+        Object_Name = "Assembly Object";
+        Object_Class_Code = 0x04;
+        Number_Of_Static_Instances = 3;
+        Assem100 =
+                "Input Assembly",
+                "",
+                32,
+                0x0000,
+                ,,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1;
+        Assem150 =
+                "Output Assembly",
+                "",
+                32,
+                0x0001,
+                ,,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1;
+        Assem151 =
+                "Configuration Assembly",
+                "",
+                10,
+                0x0001,
+                ,,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1,
+                8,0xC1;
+
+[Connection Manager]
+        Revision = 1;
+        Object_Name = "Connection Manager Object";
+        Object_Class_Code = 0x06;
+        MaxInst = 1;
+        Number_Of_Static_Instances = 1;
+        Max_Number_Of_Dynamic_Instances = 0;
+        Connection1 =
+                0x84010002,
+                0x44640405,
+                Param1,32,Assem150,
+                Param1,32,Assem100,
+                ,,
+                10,Assem151,
+                "Exclusive Owner",
+                "Reserved",
+                "20 04 24 97 2C 96 2C 64";
+        Connection2 =
+                0x02010002,
+                0x44640305,
+                Param2,0,,
+                Param2,32,Assem100,
+                ,,
+                ,,
+                "Input Only",
+                "Reserved",
+                "20 04 24 97 2C 98 2C 64";
+        Connection3 =
+                0x01010002,
+                0x44240305,
+                Param3,0,,
+                Param3,32,Assem100,
+                ,,
+                ,,
+                "Listen Only",
+                "Reserved",
+                "20 04 24 97 2C 99 2C 64";
+
+[Capacity]
+        MaxMsgConnections = 6;
+        MaxIOProduceConsume = 2;
+        MaxIOMcastProducers = 1;
+        MaxIOMcastConsumers = 1;
+        MaxConsumersPerMcast = 6;
+
+[TCP/IP Interface Class]
+        Revision = 4;
+        Object_Name = "TCP/IP Interface Object";
+        Object_Class_Code = 0xF5;
+        MaxInst = 1;
+        Number_Of_Static_Instances = 1;
+        Max_Number_Of_Dynamic_Instances = 0;
+
+[Ethernet Link Class]
+        Revision = 4;
+        Object_Name = "Ethernet Link Object";
+        Object_Class_Code = 0xF6;
+        MaxInst = 1;
+        Number_Of_Static_Instances = 1;
+        Max_Number_Of_Dynamic_Instances = 0;
+
+[Identity Class]
+        Revision = 1;
+        Object_Name = "Identity Object";
+        Object_Class_Code = 0x01;
+        MaxInst = 1;
+        Number_Of_Static_Instances = 1;
+        Max_Number_Of_Dynamic_Instances = 0;
+
+[QoS Class]
+        Revision = 1;
+        Object_Name = "QoS Object";
+        Object_Class_Code = 0x48;
+        MaxInst = 1;
+        Number_Of_Static_Instances = 1;
+        Max_Number_Of_Dynamic_Instances = 0;
+

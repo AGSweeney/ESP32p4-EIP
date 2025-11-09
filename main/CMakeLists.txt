@@ -1,0 +1,15 @@
+idf_component_register(
+    SRCS
+        "main.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        opener
+        lwip
+        esp_netif
+        esp_event
+        esp_eth
+        driver
+        freertos
+        nvs_flash
+)

@@ -1,0 +1,15 @@
+menu "OpenER Ethernet Configuration"
+    config OPENER_ETH_PHY_ADDR
+        int "Ethernet PHY address"
+        range 0 31
+        default 1
+    config OPENER_ETH_PHY_RST_GPIO
+        int "Ethernet PHY reset GPIO"
+        default 51
+    config OPENER_ETH_MDC_GPIO
+        int "Ethernet MDC GPIO"
+        default 31
+    config OPENER_ETH_MDIO_GPIO
+        int "Ethernet MDIO GPIO"
+        default 52
+endmenu
