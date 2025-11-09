@@ -100,7 +100,10 @@
 - All bring-up and validation have been performed on a Waveshare ESP32-P4-NANO with PoE module ([product page](https://www.waveshare.com/esp32-p4-nano.htm?sku=29028)).
 
 ## Next Steps
-- Integrate I²C port expanders (e.g., MCP23008/MCP23017) to provide additional opto-isolated digital I/O for industrial deployments. The plan is to probe the I²C bus at boot, identify the connected expanders, and automatically bind their GPIO lines to CIP Assembly instances.
+- Expand runtime configuration and diagnostics for newly integrated peripherals:
+  - Enumerate connected sensors/expanders during boot and publish their status through EtherNet/IP assemblies.
+  - Add automated self-test routines and logging for critical peripherals (IMUs, load-cell ADCs, ToF sensor).
+- Extend CIP object model to expose peripheral data streams (e.g., motion telemetry, weight measurements, distance sensing) for PLC consumption.
 
 
 
