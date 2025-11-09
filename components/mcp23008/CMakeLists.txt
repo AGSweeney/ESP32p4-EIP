@@ -1,4 +1,4 @@
-idf_component_register(SRCS "mp23008.c"
+idf_component_register(SRCS "mcp23008.c"
                        INCLUDE_DIRS "include"
                        REQUIRES driver)
 
