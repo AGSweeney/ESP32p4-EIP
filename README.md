@@ -5,6 +5,42 @@
 - Runs the canonical sample application with cyclic I/O assemblies and class 1/3 messaging support
 - Integrates with `esp_netif` and the ESP32 Ethernet MAC/PHY driver for link management and address assignment
 
+## Peripheral Component Libraries
+- **BMI270 – 6-axis IMU**  
+  Motion sensing and orientation detection using Bosch’s BMI270; includes accelerometer and gyroscope pipelines. [Datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi270-ds000.pdf)
+- **BNO086 – 9-axis IMU / sensor fusion hub**  
+  Absolute orientation with integrated sensor fusion algorithms from Hillcrest Labs / CEVA. [Datasheet](https://www.ceva-dsp.com/wp-content/uploads/2019/10/BNO080_085-Datasheet.pdf)
+- **74HC165 – parallel-in serial-out shift register**  
+  Expands digital inputs by latching eight GPIOs and shifting them over SPI-style serial. [Datasheet](https://www.ti.com/lit/ds/symlink/sn74hc165.pdf)
+- **74HC595 – serial-in parallel-out shift register**  
+  Provides eight latched digital outputs controlled through a serial interface. [Datasheet](https://www.ti.com/lit/ds/symlink/sn74hc595.pdf)
+- **HX711 – 24-bit load-cell ADC**  
+  Precision differential ADC for strain gauges and weigh-scale applications. [Datasheet](https://www.mouser.com/datasheet/2/813/hx711_english-1022875.pdf)
+- **LSM6DSV16X – 6-axis IMU with machine-learning core**  
+  ST MEMS accelerometer and gyroscope supporting advanced gesture and vibration features. [Datasheet](https://www.st.com/resource/en/datasheet/lsm6dsv16x.pdf)
+- **MCP23008 – 8-bit I²C GPIO expander**  
+  Adds eight general purpose digital I/O lines via I²C with configurable pull-ups. [Datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/21919e.pdf)
+- **MCP23017 – 16-bit I²C GPIO expander**  
+  Two-bank GPIO expander with interrupt-on-change and polarity inversion. [Datasheet](https://ww1.microchip.com/downloads/en/devicedoc/20001952c.pdf)
+- **MCP3008 – 10-bit SPI ADC**  
+  Eight-channel single-ended or four-channel differential analog-to-digital converter. [Datasheet](https://ww1.microchip.com/downloads/en/devicedoc/21295d.pdf)
+- **MCP3208 – 12-bit SPI ADC**  
+  Higher-resolution variant of the MCP3008 for single-ended or differential sensing. [Datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/21298c.pdf)
+- **MCP4725 – 12-bit I²C DAC**  
+  Digital-to-analog converter with EEPROM for storing default output voltage. [Datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/22039d.pdf)
+- **NAU7802 – 24-bit bridge ADC**  
+  Dual-channel ADC with PGA for load-cell and precision measurement front ends. [Datasheet](https://www.nuvoton.com/export/resource-files/DS_NAU7802_EN_Rev1.7.pdf)
+- **PCF8574 – 8-bit I²C GPIO expander**  
+  Open-drain remote I/O extension suitable for keypads and LED drivers. [Datasheet](https://www.nxp.com/docs/en/data-sheet/PCF8574_PCF8574A.pdf)
+- **PCF8575 – 16-bit I²C GPIO expander**  
+  Double-width variant providing 16 quasi-bidirectional I/O pins. [Datasheet](https://www.nxp.com/docs/en/data-sheet/PCF8575.pdf)
+- **TCA9534 – 8-bit I²C GPIO expander**  
+  TI digital port expander with interrupt support and low-power operation. [Datasheet](https://www.ti.com/lit/ds/symlink/tca9534.pdf)
+- **TCA9555 – 16-bit I²C GPIO expander**  
+  Adds two 8-bit ports with configurable direction and interrupt lines. [Datasheet](https://www.ti.com/lit/ds/symlink/tca9555.pdf)
+- **VL53L0X – time-of-flight distance sensor**  
+  Measures absolute distance up to two meters using ST’s FlightSense technology. [Datasheet](https://www.st.com/resource/en/datasheet/vl53l0x.pdf)
+
 ## Enabled EtherNet/IP Objects
 - **Class 0x02 – Message Router**  
   Core message dispatch services for all explicit requests.
