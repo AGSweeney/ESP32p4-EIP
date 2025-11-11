@@ -34,6 +34,7 @@ Ensure the following are enabled in `sdkconfig`:
 - `CONFIG_LWIP_AUTOIP=y` (enables ACD support)
 - `CONFIG_LWIP_DHCP_DOES_ACD_CHECK=y` (for DHCP ACD checking)
 - `LWIP_ACD_RFC5227_COMPLIANT_STATIC=1` (default, enables RFC 5227 compliance)
+- `CONFIG_OPENER_ACD_CUSTOM_TIMING=y` (enables ODVA-optimized ACD timings)
 
 ---
 
@@ -58,17 +59,42 @@ Ensure the following are enabled in `sdkconfig`:
    - Loaded at boot via `NvTcpipLoad()`
    - Includes: IP address, netmask, gateway, DNS servers, and `select_acd` flag
 
-### ACD Timing (RFC 5227 Defaults)
+### ACD Timing Configuration
 
-- **PROBE_WAIT**: 1 second (initial random delay)
-- **PROBE_MIN**: 1 second (minimum delay between probes)
-- **PROBE_MAX**: 2 seconds (maximum delay between probes)
-- **PROBE_NUM**: 3 (number of probe packets)
-- **ANNOUNCE_WAIT**: 2 seconds (delay before announcing)
-- **ANNOUNCE_NUM**: 2 (number of announcement packets)
-- **ANNOUNCE_INTERVAL**: 2 seconds (time between announcements)
+This project implements **adjustable ACD timings** to comply with ODVA (Open DeviceNet Vendors Association) recommendations for EtherNet/IP devices. The timings are optimized for real-time industrial communication requirements.
 
-**Total time**: Approximately 7-10 seconds for complete ACD sequence
+#### ODVA Reference
+
+**ODVA Publication 28 - Recommended IP Addressing Methods for EtherNet/IP™ Devices**
+- **Purpose**: Best practices for IP address configuration in EtherNet/IP devices
+- **Content**: Recommends Address Conflict Detection (ACD) for static IP assignment per RFC 5227
+- **Direct Link**: [ODVA Document Library](https://www.odva.org/technology-standards/document-library/) (Search for "Pub 28" or "IP Addressing Methods")
+- **Relevance**: ODVA recommends ACD for static IP assignment but emphasizes faster timing for real-time industrial applications
+
+#### Current Configuration (ODVA-Optimized)
+
+The project uses **custom ACD timings optimized for EtherNet/IP** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`). These values are significantly faster than RFC 5227 defaults to meet EtherNet/IP's real-time requirements:
+
+| Parameter | RFC 5227 Default | **ODVA-Optimized (Current)** | Description |
+|-----------|------------------|------------------------------|-------------|
+| **PROBE_WAIT** | 1000 ms | **0 ms** | Initial random delay before first probe |
+| **PROBE_MIN** | 1000 ms | **20 ms** | Minimum delay between probe packets |
+| **PROBE_MAX** | 2000 ms | **20 ms** | Maximum delay between probe packets |
+| **PROBE_NUM** | 3 packets | **1 packet** | Number of probe packets to send |
+| **ANNOUNCE_WAIT** | 2000 ms | **20 ms** | Delay before first announcement |
+| **ANNOUNCE_NUM** | 2 packets | **1 packet** | Number of announcement packets |
+| **ANNOUNCE_INTERVAL** | 2000 ms | **20 ms** | Time between announcement packets |
+
+**Total ACD time (ODVA-optimized)**: Approximately **60-100 ms** (vs. 7-10 seconds for RFC 5227 defaults)
+
+#### Configuration
+
+ACD timings are configurable via ESP-IDF menuconfig:
+- Navigate to: `Component config > OpenER ACD Timing`
+- Enable `Override default RFC5227 timings` to use ODVA-optimized values
+- Adjust individual timing parameters as needed for your network environment
+
+**Note**: The optimized timings balance conflict detection reliability with EtherNet/IP's real-time communication requirements. For networks with high latency or packet loss, you may need to increase these values.
 
 ---
 
@@ -468,9 +494,11 @@ I (xxxx) opener_main: ACD disabled - setting static IP immediately
 
 ## Additional Resources
 
-- **RFC 5227**: [IPv4 Address Conflict Detection](https://tools.ietf.org/html/rfc5227)
-- **LWIP ACD Documentation**: `dep_mods/lwIP/acd-static-ip-issue.md`
-- **RFC 5227 Implementation Guide**: `dep_mods/lwIP/RFC5227_IMPLEMENTATION_GUIDE.md`
+- **RFC 5227**: [IPv4 Address Conflict Detection](https://tools.ietf.org/html/rfc5227) - Base ACD specification
+- **ODVA Pub 28**: [Recommended IP Addressing Methods for EtherNet/IP™ Devices](https://www.odva.org/technology-standards/document-library/) - ODVA recommendations for ACD in EtherNet/IP devices
+- **LWIP ACD Documentation**: `dependency_modifications/lwIP/acd-static-ip-issue.md`
+- **RFC 5227 Implementation Guide**: `dependency_modifications/lwIP/RFC5227_IMPLEMENTATION_GUIDE.md`
+- **EtherNet/IP References**: `docs/EtherNetIP_References.md` - Comprehensive ODVA publication guide
 - **OpENer Documentation**: See main `README.md`
 
 ---

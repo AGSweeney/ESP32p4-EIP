@@ -90,12 +90,17 @@
   ![Ethernet Link object](images/EthernetLink.png)
 - Quality of Service object (`0x48/1`) with default DSCP values; note that attributes 1–3 (802.1Q enable and PTP DSCP overrides) are read-only in this port:  
   ![Quality of Service object](images/QOS.png)
-- TCP/IP Interface object (`0xF5/1`) reflecting the current network settings, stored configuration control, multicast allocation, and ACD disabled at boot:  
+- TCP/IP Interface object (`0xF5/1`) reflecting the current network settings, stored configuration control, multicast allocation, and ACD configuration:  
   ![TCP/IP Interface object](images/TCP-IP.png)
 
-## Work in Progress
-- Address Conflict Detection (ACD) per RFC 5227 is under active development; the lwIP module is present but intentionally disabled at boot until integration refinements are complete. Expect updated guidance before enabling ACD in the field.
-- Additional implementation notes live in [dep_mods/lwIP/acd-static-ip-issue.md](dep_mods/lwIP/acd-static-ip-issue.md).
+## Address Conflict Detection (ACD)
+
+- RFC 5227 compliant Address Conflict Detection (ACD) is implemented for static IP assignment
+- ACD can be enabled/disabled via TCP/IP Interface Object Attribute #10 (`select_acd`)
+- When enabled, static IP addresses are deferred until ACD confirms they are safe to use
+- Configuration persists in NVS and survives reboots
+- See [ReadmeACD.md](ReadmeACD.md) for detailed testing instructions
+- Additional implementation notes: [dependency_modifications/lwIP/acd-static-ip-issue.md](dependency_modifications/lwIP/acd-static-ip-issue.md)
 
 ## Test Reports
 - High-speed TON/TOF timing validation with Micro850 ladder logic and Saleae capture: see [Testing/Test1.md](Testing/Test1.md).

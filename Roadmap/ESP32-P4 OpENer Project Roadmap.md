@@ -9,9 +9,9 @@
 -  Complete and verify Address Conflict Detection (ACD).
 -  Validate Identity, TCP/IP, and Ethernet Link objects with configurable Vendor ID, Device Type, Product Code, and Revision.
 -  Provide default I/O assemblies:
-  - Input Assembly 0x64
-  - Output Assembly 0x65
-  - Configuration Assembly 0x66
+  - Input Assembly 100 (0x64)
+  - Output Assembly 150 (0x96)
+  - Configuration Assembly 151 (0x97)
   - Fixed layout with defined bit and byte mapping.
 
 ### Configuration

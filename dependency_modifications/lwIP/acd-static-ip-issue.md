@@ -48,8 +48,8 @@ the current code path does not.
 
 Automated coverage:
 
-- Run the lwIP unit tests that exercise DHCP/ACD interactions:
-  `pytest lwip/test/unit/dhcp`.
+- Run the lwIP unit tests that exercise DHCP/ACD interactions (if available)
+- Verify ACD state machine transitions in test scenarios
 
 ## Follow-Up
 

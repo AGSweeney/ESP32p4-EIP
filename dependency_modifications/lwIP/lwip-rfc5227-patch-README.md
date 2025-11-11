@@ -117,7 +117,7 @@ See `ReadmeACD.md` for detailed testing instructions and usage examples.
 
 - `LWIP_MODIFICATIONS.md` - Complete documentation of all LWIP changes
 - `ReadmeACD.md` - ACD testing guide
-- `dep_mods/AI_Analysis_Of_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md` - RFC 5227 requirements analysis
+- `dependency_modifications/Analysis_of_ACD_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md` - RFC 5227 requirements analysis
 
 ## Notes
 

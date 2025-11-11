@@ -513,10 +513,10 @@ grep "FD_SETSIZE" build/config/sdkconfig.h
 ## References
 
 - **RFC 5227**: IPv4 Address Conflict Detection - https://tools.ietf.org/html/rfc5227
-- **Implementation Guide**: `dep_mods/lwIP/RFC5227_IMPLEMENTATION_GUIDE.md`
+- **Implementation Guide**: `dependency_modifications/lwIP/RFC5227_IMPLEMENTATION_GUIDE.md`
 - **ACD Testing Guide**: `ReadmeACD.md`
-- **ACD Static IP Issue**: `dep_mods/lwIP/acd-static-ip-issue.md`
-- **RFC 5227 Requirements**: `dep_mods/AI_Analysis_Of_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md`
+- **ACD Static IP Issue**: `dependency_modifications/lwIP/acd-static-ip-issue.md`
+- **RFC 5227 Requirements**: `dependency_modifications/Analysis_of_ACD_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md`
 
 ---
 

@@ -493,9 +493,9 @@ static void acd_static_ip_rfc5227_callback(struct netif *netif, acd_callback_enu
 
 ## References
 
-- See `dep_mods/AI_Analysis_Of_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md` for detailed requirements
+- See `dependency_modifications/Analysis_of_ACD_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md` for detailed requirements
 - RFC 5227: https://tools.ietf.org/html/rfc5227
-- Current ACD implementation: `dep_mods/lwIP/acd.c`
+- Current ACD implementation: `dependency_modifications/lwIP/acd.c`
 
 ---
 
