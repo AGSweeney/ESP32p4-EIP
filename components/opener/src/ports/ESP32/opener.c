@@ -91,15 +91,17 @@ void opener_init(struct netif *netif) {
     g_end_stack = 1;
   }
   if ((g_end_stack == 0) && (eip_status == kEipStatusOk)) {
-    BaseType_t result = xTaskCreate(opener_thread,
-                                    "OpENer",
-                                    OPENER_STACK_SIZE,
-                                    netif,
-                                    OPENER_THREAD_PRIO,
-                                    &opener_task_handle);
+    // Pin OpENer task to Core 0 (same as LWIP TCP/IP task)
+    BaseType_t result = xTaskCreatePinnedToCore(opener_thread,
+                                                 "OpENer",
+                                                 OPENER_STACK_SIZE,
+                                                 netif,
+                                                 OPENER_THREAD_PRIO,
+                                                 &opener_task_handle,
+                                                 0);  // Core 0
     if (result == pdPASS) {
       opener_initialized = true;
-      OPENER_TRACE_INFO("OpENer: opener_thread started, free heap size: %d\n",
+      OPENER_TRACE_INFO("OpENer: opener_thread started on Core 0, free heap size: %d\n",
              xPortGetFreeHeapSize());
     } else {
       OPENER_TRACE_ERR("Failed to create OpENer task\n");

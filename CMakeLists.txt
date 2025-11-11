@@ -26,4 +26,11 @@ list(APPEND EXTRA_COMPONENT_DIRS ${PLANE_COMPONENT_DIRS})
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
+
+# Define FD_SETSIZE for LWIP_MAX_SOCKETS=64
+# LWIP_SOCKET_OFFSET = FD_SETSIZE - MAX_SOCKETS, and we need LWIP_SOCKET_OFFSET >= 6
+# So FD_SETSIZE >= MAX_SOCKETS + 6 = 64 + 6 = 70
+# Also need room for stdout, stderr, stdin (+3), so use 73 for safety
+add_compile_definitions(FD_SETSIZE=73)
+
 project(ESP32-P4-OpENerEIP)

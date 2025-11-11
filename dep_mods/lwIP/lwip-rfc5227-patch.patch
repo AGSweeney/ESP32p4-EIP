@@ -1,0 +1,463 @@
+diff --git a/lwip/src/include/lwip/opt.h b/lwip/src/include/lwip/opt.h
+index 0000000..1111111 100644
+--- a/lwip/src/include/lwip/opt.h
++++ b/lwip/src/include/lwip/opt.h
+@@ -1057,6 +1057,25 @@
+ #endif /* !LWIP_IPV4 */
+ /**
++ * LWIP_ACD_RFC5227_COMPLIANT_STATIC==1: Enable RFC 5227 compliant static IP assignment.
++ * When enabled, netif_set_addr() will defer IP assignment until ACD confirms safety.
++ * IP address is NOT assigned until ACD_IP_OK callback is received.
++ * If conflict is detected, IP is not assigned (or removed if already assigned).
++ * 
++ * This requires LWIP_ACD to be enabled.
++ * Default: 1 (enabled) for RFC 5227 compliance
++ */
++#ifndef LWIP_ACD_RFC5227_COMPLIANT_STATIC
++#define LWIP_ACD_RFC5227_COMPLIANT_STATIC   1
++#endif
++#if !LWIP_ACD
++#undef LWIP_ACD_RFC5227_COMPLIANT_STATIC
++#define LWIP_ACD_RFC5227_COMPLIANT_STATIC   0
++#endif
++/**
+  * @}
+  */
+ 
+diff --git a/lwip/src/include/lwip/netif_pending_ip.h b/lwip/src/include/lwip/netif_pending_ip.h
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/lwip/src/include/lwip/netif_pending_ip.h
+@@ -0,0 +1,38 @@
++/**
++ * @file
++ * Pending IP configuration structure for RFC 5227 compliant static IP assignment
++ */
++
++#ifndef LWIP_HDR_NETIF_PENDING_IP_H
++#define LWIP_HDR_NETIF_PENDING_IP_H
++
++#include "lwip/opt.h"
++
++#if LWIP_IPV4 && LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++
++#include "lwip/ip4_addr.h"
++/* Now that netif.h only forward declares this struct, we can include acd.h */
++/* acd.h includes netif.h, but netif.h no longer includes netif_pending_ip.h */
++#include "lwip/acd.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct netif_pending_ip_config {
++  ip4_addr_t ipaddr;
++  ip4_addr_t netmask;
++  ip4_addr_t gw;
++  struct acd acd;
++  acd_conflict_callback_t user_callback;
++  u8_t pending;  /* 1 if waiting for ACD, 0 if assigned */
++};
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* LWIP_IPV4 && LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC */
++
++#endif /* LWIP_HDR_NETIF_PENDING_IP_H */
++
+diff --git a/lwip/src/include/lwip/netif.h b/lwip/src/include/lwip/netif.h
+index 0000000..3333333 100644
+--- a/lwip/src/include/lwip/netif.h
++++ b/lwip/src/include/lwip/netif.h
+@@ -49,6 +49,20 @@
+ 
+ #include "lwip/stats.h"
+ 
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++/* Forward declare to avoid circular dependency */
++/* netif_pending_ip.h includes acd.h, which includes netif.h */
++struct netif_pending_ip_config;
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++/* Forward declare callback type needed for netif_set_addr_with_acd */
++/* struct netif is forward declared below */
++#include "lwip/prot/acd.h"  /* Need acd_callback_enum_t */
++typedef void (*acd_conflict_callback_t)(struct netif *netif, acd_callback_enum_t state);
++#endif
++
+ /* Throughout this file, IP addresses are expected to be in
+  * the same byte order as in IP_PCB. */
+@@ -400,6 +414,9 @@ struct netif {
+ #if LWIP_ACD
+   struct acd *acd_list;
+ #endif /* LWIP_ACD */
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++  struct netif_pending_ip_config *pending_ip_config;
++#endif /* LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC */
+ #if LWIP_IPV6
+   /** Array of IPv6 addresses for this netif. */
+   ip6_addr_t ip6_addr[LWIP_IPV6_NUM_ADDRESSES];
+@@ -455,6 +472,13 @@ err_t netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr,
+                      const ip4_addr_t *netmask, const ip4_addr_t *gw);
+ #endif /* LWIP_IPV4 */
+ 
++#if LWIP_IPV4
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++err_t netif_set_addr_with_acd(struct netif *netif,
++                               const ip4_addr_t *ipaddr,
++                               const ip4_addr_t *netmask,
++                               const ip4_addr_t *gw,
++                               acd_conflict_callback_t callback);
++#endif
++#endif /* LWIP_IPV4 */
+ /**
+  * @defgroup netif_ip4 IPv4 address handling
+  * @ingroup netif
+diff --git a/lwip/src/include/lwip/acd.h b/lwip/src/include/lwip/acd.h
+index 0000000..4444444 100644
+--- a/lwip/src/include/lwip/acd.h
++++ b/lwip/src/include/lwip/acd.h
+@@ -45,7 +45,10 @@
+ /* don't build if not configured for use in lwipopts.h */
+ #if LWIP_IPV4 && LWIP_ACD
+ 
+ #include "lwip/netif.h"
++/* Forward declare struct etharp_hdr to avoid circular dependency */
++/* etharp.h includes netif.h, which includes netif_pending_ip.h, which includes acd.h */
++struct etharp_hdr;
+ #include "lwip/prot/acd.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++
++/* Forward declaration for RFC 5227 callback - declared early for visibility */
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++void acd_static_ip_rfc5227_callback(struct netif *netif, acd_callback_enum_t state);
++#endif
++
+ /** ACD Timing
+  *  ACD_TMR_INTERVAL msecs, I recommend a value of 100.
+  *  The value must divide 1000 with a remainder almost 0. Possible values are
+@@ -98,7 +111,7 @@ err_t acd_add(struct netif *netif, struct acd *acd,
+               acd_conflict_callback_t acd_conflict_callback);
+ void acd_remove(struct netif *netif, struct acd *acd);
+ err_t acd_start(struct netif *netif, struct acd *acd, ip4_addr_t ipaddr);
+ err_t acd_stop(struct acd *acd);
+-void acd_arp_reply(struct netif *netif, struct etharp_hdr *hdr);
++void acd_arp_reply(struct netif *netif, struct etharp_hdr *hdr);
+ void acd_tmr(void);
+ void acd_network_changed_link_down(struct netif *netif);
+ void acd_netif_ip_addr_changed(struct netif *netif, const ip_addr_t *old_addr,
+diff --git a/lwip/src/core/ipv4/acd.c b/lwip/src/core/ipv4/acd.c
+index 0000000..5555555 100644
+--- a/lwip/src/core/ipv4/acd.c
++++ b/lwip/src/core/ipv4/acd.c
+@@ -70,6 +70,12 @@
+ 
+ #include "lwip/acd.h"
+ #include "lwip/prot/acd.h"
++#include "lwip/etharp.h"  /* Need full definition of struct etharp_hdr for acd_arp_reply */
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++#include "lwip/netif_pending_ip.h"
++#include "lwip/netif.h"
++#include "lwip/mem.h"
++#endif
+ 
+ #define ACD_FOREACH(acd, acd_list) for ((acd) = acd_list; (acd) != NULL; (acd) = (acd)->next)
+ 
+@@ -108,6 +114,9 @@
+ static void acd_restart(struct netif *netif, struct acd *acd);
+ static void acd_handle_arp_conflict(struct netif *netif, struct acd *acd);
+ static void acd_put_in_passive_mode(struct netif *netif, struct acd *acd);
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++void acd_static_ip_rfc5227_callback(struct netif *netif, acd_callback_enum_t state);
++#endif
+ 
+ /**
+  * @ingroup acd
+@@ -448,6 +457,30 @@ acd_handle_arp_conflict(struct netif *netif, struct acd *acd)
+ {
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++  /* RFC 5227 Section 2.4.1: If conflict detected, MUST stop using address */
++  if (netif->pending_ip_config != NULL && 
++      ip4_addr_eq(&acd->ipaddr, &netif->pending_ip_config->ipaddr)) {
++    /* This is a static IP with RFC 5227 compliance */
++    LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE | LWIP_DBG_LEVEL_WARNING,
++                ("acd_handle_arp_conflict(): RFC 5227 - Removing conflicting static IP\n"));
++    
++    /* Remove IP address */
++    netif_set_addr(netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
++    
++    /* Notify user callback */
++    if (netif->pending_ip_config->user_callback) {
++      netif->pending_ip_config->user_callback(netif, ACD_DECLINE);
++    }
++    
++    /* Clean up */
++    acd_remove(netif, &netif->pending_ip_config->acd);
++    mem_free(netif->pending_ip_config);
++    netif->pending_ip_config = NULL;
++    return;
++  }
++#endif /* LWIP_ACD_RFC5227_COMPLIANT_STATIC */
++
+   /* RFC5227, 2.4 "Ongoing Address Conflict Detection and Address Defense"
+      allows three options where:
+      a) means retreat on the first conflict,
+@@ -547,6 +580,58 @@ acd_put_in_passive_mode(struct netif *netif, struct acd *acd)
+   }
+ }
+ 
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++/**
++ * RFC 5227 compliant callback for static IP assignment
++ * Assigns IP only after ACD confirms safety (ACD_IP_OK)
++ * Removes IP if conflict detected
++ */
++void
++acd_static_ip_rfc5227_callback(struct netif *netif, acd_callback_enum_t state)
++{
++  struct netif_pending_ip_config *pending = netif->pending_ip_config;
++  
++  if (pending == NULL) {
++    return;
++  }
++  
++  switch (state) {
++    case ACD_IP_OK:
++      /* RFC 5227 Section 2.1: Address confirmed safe, now assign it */
++      LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE,
++                  ("acd_static_ip_rfc5227_callback(): Address confirmed safe, assigning IP\n"));
++      
++      /* Assign IP address */
++      netif_set_ipaddr(netif, &pending->ipaddr);
++      netif_set_netmask(netif, &pending->netmask);
++      netif_set_gw(netif, &pending->gw);
++      
++      pending->pending = 0;  /* Mark as assigned */
++      
++      /* Notify user callback */
++      if (pending->user_callback) {
++        pending->user_callback(netif, ACD_IP_OK);
++      }
++      break;
++      
++    case ACD_DECLINE:
++    case ACD_RESTART_CLIENT:
++      /* RFC 5227 Section 2.4.1: Conflict detected, MUST NOT use address */
++      LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE | LWIP_DBG_LEVEL_WARNING,
++                  ("acd_static_ip_rfc5227_callback(): Conflict detected, NOT assigning IP\n"));
++      
++      /* Clean up pending configuration */
++      acd_remove(netif, &pending->acd);
++      pending->pending = 0;
++      
++      /* Notify user callback */
++      if (pending->user_callback) {
++        pending->user_callback(netif, state);
++      }
++      
++      /* Free pending config */
++      mem_free(pending);
++      netif->pending_ip_config = NULL;
++      break;
++      
++    default:
++      break;
++  }
++}
++#endif /* LWIP_ACD_RFC5227_COMPLIANT_STATIC */
++
+ /**
+  * @ingroup acd
+  * Inform the ACD modules of address changes
+diff --git a/lwip/src/core/netif.c b/lwip/src/core/netif.c
+index 0000000..6666666 100644
+--- a/lwip/src/core/netif.c
++++ b/lwip/src/core/netif.c
+@@ -82,6 +82,11 @@
+ #if LWIP_ACD
+ #include "lwip/acd.h"
++#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
++#include "lwip/netif_pending_ip.h"
++#endif
++#endif /* LWIP_ACD */
+ #if LWIP_IPV6_DHCP6
+ #include "lwip/dhcp6.h"
+ #endif /* LWIP_IPV6_DHCP6 */
+@@ -763,6 +768,73 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr,
+ #endif
+ }
+ 
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++/* Forward declaration - acd.h should have declared this, but ensure it's visible here */
++/* The function is implemented in acd.c and declared in acd.h */
++/* acd_callback_enum_t is defined in lwip/prot/acd.h which is included by acd.h */
++extern void acd_static_ip_rfc5227_callback(struct netif *netif, acd_callback_enum_t state);
++
++/**
++ * Set static IP address with RFC 5227 compliant conflict detection
++ * 
++ * IP address is NOT assigned until ACD confirms it's safe (ACD_IP_OK callback).
++ * If conflict is detected, IP is not assigned and callback is notified.
++ * 
++ * @param netif Network interface
++ * @param ipaddr IP address to assign (after ACD confirms)
++ * @param netmask Netmask
++ * @param gw Gateway
++ * @param callback Callback for ACD events (required)
++ * @return ERR_OK if ACD started successfully, ERR_ARG if invalid params
++ * 
++ * Note: acd_static_ip_rfc5227_callback is declared in lwip/acd.h
++ */
++err_t
++netif_set_addr_with_acd(struct netif *netif,
++                        const ip4_addr_t *ipaddr,
++                        const ip4_addr_t *netmask,
++                        const ip4_addr_t *gw,
++                        acd_conflict_callback_t callback)
++{
++  struct netif_pending_ip_config *pending;
++  
++  LWIP_ASSERT_CORE_LOCKED();
++  LWIP_ERROR("netif != NULL", netif != NULL, return ERR_ARG);
++  LWIP_ERROR("ipaddr != NULL", ipaddr != NULL, return ERR_ARG);
++  LWIP_ERROR("netmask != NULL", netmask != NULL, return ERR_ARG);
++  LWIP_ERROR("gw != NULL", gw != NULL, return ERR_ARG);
++  
++  /* Don't allow if already pending */
++  if (netif->pending_ip_config != NULL) {
++    LWIP_DEBUGF(NETIF_DEBUG | LWIP_DBG_TRACE, 
++                ("netif_set_addr_with_acd(): Already have pending IP config\n"));
++    return ERR_INPROGRESS;
++  }
++  
++  /* Allocate pending configuration */
++  pending = (struct netif_pending_ip_config *)mem_malloc(sizeof(struct netif_pending_ip_config));
++  if (pending == NULL) {
++    return ERR_MEM;
++  }
++  
++  /* Store configuration */
++  ip4_addr_copy(pending->ipaddr, *ipaddr);
++  ip4_addr_copy(pending->netmask, *netmask);
++  ip4_addr_copy(pending->gw, *gw);
++  pending->user_callback = callback;
++  pending->pending = 1;
++  
++  netif->pending_ip_config = pending;
++  
++  /* Start ACD BEFORE assigning IP (RFC 5227 compliant) */
++  /* acd_static_ip_rfc5227_callback is declared above and in lwip/acd.h */
++  if (acd_add(netif, &pending->acd, acd_static_ip_rfc5227_callback) == ERR_OK) {
++    if (acd_start(netif, &pending->acd, *ipaddr) == ERR_OK) {
++      LWIP_DEBUGF(NETIF_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE,
++                  ("netif_set_addr_with_acd(): ACD started, IP assignment deferred\n"));
++      return ERR_OK;
++    }
++  }
++  
++  /* Failed to start ACD, clean up */
++  mem_free(pending);
++  netif->pending_ip_config = NULL;
++  return ERR_VAL;
++}
++#endif /* LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC */
++
+ /**
+  * @ingroup netif
+  * Remove a network interface from the list of lwIP netifs.
+@@ -870,6 +942,12 @@ netif_remove(struct netif *netif)
+   /* stop IGMP processing */
+   if (netif->flags & NETIF_FLAG_IGMP) {
+     igmp_stop(netif);
+   }
+ #endif /* LWIP_IGMP */
++#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
++  /* Clean up pending IP configuration if present */
++  if (netif->pending_ip_config != NULL) {
++    acd_remove(netif, &netif->pending_ip_config->acd);
++    mem_free(netif->pending_ip_config);
++    netif->pending_ip_config = NULL;
++  }
++#endif
+ #endif /* LWIP_IPV4*/
+ 
+ #if LWIP_IPV6
+diff --git a/lwip/src/include/lwip/prot/acd.h b/lwip/src/include/lwip/prot/acd.h
+index 0000000..7777777 100644
+--- a/lwip/src/include/lwip/prot/acd.h
++++ b/lwip/src/include/lwip/prot/acd.h
+@@ -44,7 +44,20 @@
+ #endif
+ 
+ /* RFC 5227 and RFC 3927 Constants */
+-#define PROBE_WAIT           1   /* second  (initial random delay)                    */
+-#define PROBE_MIN            1   /* second  (minimum delay till repeated probe)       */
+-#define PROBE_MAX            2   /* seconds (maximum delay till repeated probe)       */
+-#define PROBE_NUM            3   /*         (number of probe packets)                 */
+-#define ANNOUNCE_NUM         2   /*         (number of announcement packets)          */
+-#define ANNOUNCE_INTERVAL    2   /* seconds (time between announcement packets)       */
+-#define ANNOUNCE_WAIT        2   /* seconds (delay before announcing)                 */
++/* These can be overridden in lwipopts.h for protocol-specific requirements
++ * (e.g., EtherNet/IP uses different timings than RFC 5227) */
++#ifndef PROBE_WAIT
++#define PROBE_WAIT           1   /* second  (initial random delay)                    */
++#endif
++#ifndef PROBE_MIN
++#define PROBE_MIN            1   /* second  (minimum delay till repeated probe)       */
++#endif
++#ifndef PROBE_MAX
++#define PROBE_MAX            2   /* seconds (maximum delay till repeated probe)       */
++#endif
++#ifndef PROBE_NUM
++#define PROBE_NUM            3   /*         (number of probe packets)                 */
++#endif
++#ifndef ANNOUNCE_NUM
++#define ANNOUNCE_NUM         2   /*         (number of announcement packets)          */
++#endif
++#ifndef ANNOUNCE_INTERVAL
++#define ANNOUNCE_INTERVAL    2   /* seconds (time between announcement packets)       */
++#endif
++#ifndef ANNOUNCE_WAIT
++#define ANNOUNCE_WAIT        2   /* seconds (delay before announcing)                 */
++#endif
+ 
+ /** LWIP_AUTOIP_MAX_CONFLICTS: Maximum number of conflicts before rate limiting
+@@ -71,7 +84,9 @@
+ #define RATE_LIMIT_INTERVAL  60
+ #endif
+ 
+-#define DEFEND_INTERVAL      10  /* seconds (minimum interval between defensive ARPs) */
++#ifndef DEFEND_INTERVAL
++#define DEFEND_INTERVAL      10  /* seconds (minimum interval between defensive ARPs) */
++#endif
+ 
+ /* ACD states */
+diff --git a/port/include/lwipopts.h b/port/include/lwipopts.h
+index 0000000..8888888 100644
+--- a/port/include/lwipopts.h
++++ b/port/include/lwipopts.h
+@@ -310,6 +310,13 @@
+  * - Using ARP check, we only send two ARP requests to check for replies. This process
+  *    lasts 1 - 2 seconds.
+  * - No conflict detection: We directly bind the offered address.
++ *
++ * Note: ACD timing constants (PROBE_WAIT, PROBE_MIN, PROBE_MAX, PROBE_NUM,
++ * ANNOUNCE_NUM, ANNOUNCE_INTERVAL, ANNOUNCE_WAIT, DEFEND_INTERVAL) can be
++ * overridden in lwipopts.h for protocol-specific requirements. For example,
++ * EtherNet/IP uses different timings than RFC 5227. Define these constants
++ * before including this file to override the defaults.
+  */
+ #ifdef CONFIG_LWIP_DHCP_DOES_ARP_CHECK
+ #define LWIP_DHCP_DOES_ACD_CHECK        1
+

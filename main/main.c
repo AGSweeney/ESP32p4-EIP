@@ -19,6 +19,9 @@
 #include "lwip/netifapi.h"
 #include "lwip/timeouts.h"
 #include "lwip/etharp.h"
+#if LWIP_ACD && LWIP_ACD_RFC5227_COMPLIANT_STATIC
+#include "lwip/netif_pending_ip.h"
+#endif
 #include "nvs_flash.h"
 #include "opener.h"
 #include "nvtcpip.h"
@@ -40,6 +43,9 @@ static SemaphoreHandle_t s_acd_sem = NULL;
 static acd_callback_enum_t s_acd_last_state = ACD_RESTART_CLIENT;
 static bool s_acd_probe_pending = false;
 static esp_netif_ip_info_t s_pending_static_ip_cfg = {0};
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+static esp_netif_t *s_pending_esp_netif = NULL;  /* Store esp_netif for callback */
+#endif
 #endif
 static bool s_opener_initialized;
 
@@ -122,12 +128,34 @@ static bool netif_has_valid_hwaddr(struct netif *netif) {
 }
 
 static void tcpip_acd_conflict_callback(struct netif *netif, acd_callback_enum_t state) {
-    (void)netif;
     ESP_LOGI(TAG, "ACD callback state=%d", (int)state);
     s_acd_last_state = state;
     switch (state) {
         case ACD_IP_OK:
             g_tcpip.status &= ~(kTcpipStatusAcdStatus | kTcpipStatusAcdFault);
+            CipTcpIpSetLastAcdActivity(0);
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+            /* With RFC 5227, IP is now assigned. Configure DNS and notify */
+            if (netif != NULL && s_pending_esp_netif != NULL) {
+                opener_configure_dns(s_pending_esp_netif);
+                s_acd_probe_pending = false;
+                ESP_LOGI(TAG, "RFC 5227: IP assigned after ACD confirmation");
+            }
+#endif
+            break;
+        case ACD_DECLINE:
+        case ACD_RESTART_CLIENT:
+            g_tcpip.status |= kTcpipStatusAcdStatus;
+            g_tcpip.status |= kTcpipStatusAcdFault;
+            CipTcpIpSetLastAcdActivity(3);
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+            /* With RFC 5227, IP was not assigned due to conflict */
+            if (netif != NULL) {
+                s_acd_probe_pending = false;
+                s_pending_esp_netif = NULL;
+                ESP_LOGW(TAG, "RFC 5227: IP not assigned due to conflict");
+            }
+#endif
             break;
         default:
             g_tcpip.status |= kTcpipStatusAcdStatus;
@@ -164,6 +192,8 @@ static void tcpip_acd_stop_cb(void *arg) {
     acd_stop(&s_static_ip_acd);
 }
 
+#if !LWIP_ACD_RFC5227_COMPLIANT_STATIC
+/* Legacy ACD function - only used when RFC 5227 compliant mode is disabled */
 static bool tcpip_perform_acd(struct netif *netif, const ip4_addr_t *ip) {
     if (!g_tcpip.select_acd) {
         g_tcpip.status &= ~(kTcpipStatusAcdStatus | kTcpipStatusAcdFault);
@@ -233,6 +263,23 @@ static bool tcpip_perform_acd(struct netif *netif, const ip4_addr_t *ip) {
     CipTcpIpSetLastAcdActivity(3);
     return false;
 }
+#endif /* !LWIP_ACD_RFC5227_COMPLIANT_STATIC */
+
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+typedef struct {
+    struct netif *netif;
+    ip4_addr_t ip;
+    ip4_addr_t netmask;
+    ip4_addr_t gw;
+    err_t err;
+} Rfc5227AcdContext;
+
+static void tcpip_rfc5227_acd_start_cb(void *arg) {
+    Rfc5227AcdContext *ctx = (Rfc5227AcdContext *)arg;
+    ctx->err = netif_set_addr_with_acd(ctx->netif, &ctx->ip, &ctx->netmask, &ctx->gw, 
+                                        tcpip_acd_conflict_callback);
+}
+#endif
 
 static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif) {
     if (!s_acd_probe_pending || netif == NULL || lwip_netif == NULL) {
@@ -247,6 +294,35 @@ static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif) 
         return;
     }
 
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+    /* Use RFC 5227 compliant API: IP assignment deferred until ACD confirms */
+    s_pending_esp_netif = netif;  /* Store for callback */
+    Rfc5227AcdContext ctx = {
+        .netif = lwip_netif,
+        .ip.addr = s_pending_static_ip_cfg.ip.addr,
+        .netmask.addr = s_pending_static_ip_cfg.netmask.addr,
+        .gw.addr = s_pending_static_ip_cfg.gw.addr,
+        .err = ERR_OK
+    };
+    
+    CipTcpIpSetLastAcdActivity(2);
+    if (tcpip_callback_with_block(tcpip_rfc5227_acd_start_cb, &ctx, 1) != ERR_OK || ctx.err != ERR_OK) {
+        ESP_LOGE(TAG, "Failed to start RFC 5227 compliant ACD (err=%d)", (int)ctx.err);
+        CipTcpIpSetLastAcdActivity(3);
+        g_tcpip.status |= kTcpipStatusAcdStatus | kTcpipStatusAcdFault;
+        s_pending_esp_netif = NULL;
+        /* Fall back to immediate assignment */
+        ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &s_pending_static_ip_cfg));
+        opener_configure_dns(netif);
+        s_acd_probe_pending = false;
+        CipTcpIpSetLastAcdActivity(0);
+    } else {
+        ESP_LOGI(TAG, "RFC 5227: ACD started, IP assignment deferred");
+        /* IP will be assigned when ACD_IP_OK callback is received */
+        /* DNS will be configured in the callback */
+    }
+#else
+    /* Legacy ACD flow: set IP first, then perform ACD */
     ip4_addr_t desired_ip = { .addr = s_pending_static_ip_cfg.ip.addr };
     CipTcpIpSetLastAcdActivity(2);
     if (!tcpip_perform_acd(lwip_netif, &desired_ip)) {
@@ -258,6 +334,7 @@ static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif) 
     opener_configure_dns(netif);
     s_acd_probe_pending = false;
     CipTcpIpSetLastAcdActivity(0);
+#endif
 }
 
 static void tcpip_retry_acd_deferred(void *arg) {
@@ -298,7 +375,16 @@ static void configure_netif_from_tcpip(esp_netif_t *netif) {
         esp_netif_dhcpc_stop(netif);
 
         if (ip_info_has_static_address(&ip_info)) {
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+            /* RFC 5227 mode: Don't set IP immediately if ACD is enabled */
+            if (!g_tcpip.select_acd) {
+                /* ACD disabled, set IP immediately */
+                ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
+            }
+            /* If ACD enabled, IP will be set via netif_set_addr_with_acd() */
+#else
             ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
+#endif
         } else {
             ESP_LOGW(TAG, "Static configuration missing IP/mask; attempting AutoIP fallback");
 #if CONFIG_LWIP_AUTOIP
@@ -325,17 +411,32 @@ static void configure_netif_from_tcpip(esp_netif_t *netif) {
         }
 
 #if LWIP_IPV4 && LWIP_ACD
-        s_pending_static_ip_cfg = ip_info;
-        s_acd_probe_pending = true;
-        CipTcpIpSetLastAcdActivity(1);
-        ESP_LOGI(TAG, "ACD path: select_acd=%d, lwip_netif=%p", g_tcpip.select_acd ? 1 : 0, (void *)lwip_netif);
-        if (g_tcpip.select_acd && lwip_netif != NULL) {
-            ESP_LOGI(TAG, "Scheduling ACD probe for static IP");
-            tcpip_try_pending_acd(netif, lwip_netif);
-        }
-        if (!g_tcpip.select_acd) {
+        if (g_tcpip.select_acd) {
+            /* ACD enabled - use deferred assignment */
+            s_pending_static_ip_cfg = ip_info;
+            s_acd_probe_pending = true;
+            CipTcpIpSetLastAcdActivity(1);
+            ESP_LOGI(TAG, "ACD path: select_acd=%d, RFC5227=%d, lwip_netif=%p", 
+                     g_tcpip.select_acd ? 1 : 0,
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+                     1,
+#else
+                     0,
+#endif
+                     (void *)lwip_netif);
+            if (lwip_netif != NULL) {
+#if LWIP_ACD_RFC5227_COMPLIANT_STATIC
+                ESP_LOGI(TAG, "Using RFC 5227 compliant ACD for static IP");
+#else
+                ESP_LOGI(TAG, "Using legacy ACD for static IP");
+#endif
+                tcpip_try_pending_acd(netif, lwip_netif);
+            }
+        } else {
+            /* ACD disabled - set IP immediately */
             CipTcpIpSetLastAcdActivity(0);
             s_acd_probe_pending = false;
+            ESP_LOGI(TAG, "ACD disabled - setting static IP immediately");
             ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
             opener_configure_dns(netif);
         }
