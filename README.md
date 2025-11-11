@@ -98,7 +98,7 @@
 - Additional implementation notes live in [dep_mods/lwIP/acd-static-ip-issue.md](dep_mods/lwIP/acd-static-ip-issue.md).
 
 ## Test Reports
-- High-speed TON/TOF timing validation with Micro850 ladder logic and Saleae capture: see [`Testing/Test1.md`](Testing/Test1.md).
+- High-speed TON/TOF timing validation with Micro850 ladder logic and Saleae capture: see [Testing/Test1.md](Testing/Test1.md).
 
 ## Hardware Under Test
 - All bring-up and validation have been performed on a Waveshare ESP32-P4-NANO with PoE module ([product page](https://www.waveshare.com/esp32-p4-nano.htm?sku=29028)).
