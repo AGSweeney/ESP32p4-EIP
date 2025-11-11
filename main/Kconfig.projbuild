@@ -13,3 +13,44 @@ menu "OpenER Ethernet Configuration"
         int "Ethernet MDIO GPIO"
         default 52
 endmenu
+
+menu "OpenER ACD Timing"
+    config OPENER_ACD_CUSTOM_TIMING
+        bool "Override default RFC5227 timings"
+        default y
+        help
+            Enable this option to tune IPv4 Address Conflict Detection timings to match
+            EtherNet/IP requirements. When disabled, lwIP falls back to RFC5227 defaults.
+
+    if OPENER_ACD_CUSTOM_TIMING
+        config OPENER_ACD_PROBE_WAIT_MS
+            int "Initial random probe wait (ms)"
+            default 1000
+            help
+                Maximum initial delay before the first probe is sent. Set to 0 for no delay.
+
+        config OPENER_ACD_PROBE_MIN_MS
+            int "Minimum delay between probes (ms)"
+            default 1000
+
+        config OPENER_ACD_PROBE_MAX_MS
+            int "Maximum delay between probes (ms)"
+            default 2000
+
+        config OPENER_ACD_PROBE_NUM
+            int "Number of probes"
+            default 3
+
+        config OPENER_ACD_ANNOUNCE_NUM
+            int "Number of announcements"
+            default 2
+
+        config OPENER_ACD_ANNOUNCE_INTERVAL_MS
+            int "Interval between announcements (ms)"
+            default 2000
+
+        config OPENER_ACD_ANNOUNCE_WAIT_MS
+            int "Delay before first announcement (ms)"
+            default 2000
+    endif
+endmenu

@@ -13,6 +13,7 @@
 #include "nvtcpip.h"
 
 #include <string.h>
+#include <inttypes.h>
 
 #include "ciptcpipinterface.h"
 #include "cipstring.h"
@@ -20,6 +21,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "lwip/ip4_addr.h"
 
 #define TCPIP_NVS_NAMESPACE  "opener"   /**< NVS namespace for TCP/IP data */
 #define TCPIP_NVS_KEY        "tcpip_cfg"
@@ -137,6 +139,34 @@ EipStatus NvTcpipLoad(CipTcpIpObject *p_tcp_ip) {
     p_tcp_ip->interface_configuration.name_server_2 = blob_v1.name_server2;
     p_tcp_ip->select_acd = false;
   }
+
+  ip4_addr_t nv_ip = { .addr = p_tcp_ip->interface_configuration.ip_address };
+  ip4_addr_t nv_mask = { .addr = p_tcp_ip->interface_configuration.network_mask };
+  ip4_addr_t nv_gw = { .addr = p_tcp_ip->interface_configuration.gateway };
+  ip4_addr_t nv_dns1 = { .addr = p_tcp_ip->interface_configuration.name_server };
+  ip4_addr_t nv_dns2 = { .addr = p_tcp_ip->interface_configuration.name_server_2 };
+
+  char ip_str[16];
+  char mask_str[16];
+  char gw_str[16];
+  char dns1_str[16];
+  char dns2_str[16];
+
+  const char *dns1_print = ip4_addr_isany_val(nv_dns1) ?
+                           "none" :
+                           ip4addr_ntoa_r(&nv_dns1, dns1_str, sizeof dns1_str);
+  const char *dns2_print = ip4_addr_isany_val(nv_dns2) ?
+                           "none" :
+                           ip4addr_ntoa_r(&nv_dns2, dns2_str, sizeof dns2_str);
+
+  ESP_LOGI(kTag,
+           "NV config ctrl=0x%08lx ip=%s mask=%s gw=%s dns=%s/%s",
+           (unsigned long)p_tcp_ip->config_control,
+           ip4addr_ntoa_r(&nv_ip, ip_str, sizeof ip_str),
+           ip4addr_ntoa_r(&nv_mask, mask_str, sizeof mask_str),
+           ip4addr_ntoa_r(&nv_gw, gw_str, sizeof gw_str),
+           dns1_print,
+           dns2_print);
 
   ClearCipString(&p_tcp_ip->interface_configuration.domain_name);
   uint16_t domain_length = blob_v2 ? blob_v2->domain_length : blob_v1.domain_length;

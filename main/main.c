@@ -16,6 +16,8 @@
 #include "lwip/tcpip.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/acd.h"
+#include "lwip/netifapi.h"
+#include "lwip/timeouts.h"
 #include "lwip/etharp.h"
 #include "nvs_flash.h"
 #include "opener.h"
@@ -39,10 +41,21 @@ static acd_callback_enum_t s_acd_last_state = ACD_RESTART_CLIENT;
 static bool s_acd_probe_pending = false;
 static esp_netif_ip_info_t s_pending_static_ip_cfg = {0};
 #endif
+static bool s_opener_initialized;
 
 static bool tcpip_config_uses_dhcp(void);
 static void configure_hostname(esp_netif_t *netif);
 static void opener_configure_dns(esp_netif_t *netif);
+
+static bool ip_info_has_static_address(const esp_netif_ip_info_t *ip_info) {
+    if (ip_info == NULL) {
+        return false;
+    }
+    if (ip_info->ip.addr == 0 || ip_info->netmask.addr == 0) {
+        return false;
+    }
+    return true;
+}
 
 static bool tcpip_config_uses_dhcp(void) {
     return (g_tcpip.config_control & kTcpipCfgCtrlMethodMask) == kTcpipCfgCtrlDhcp;
@@ -90,6 +103,9 @@ typedef struct {
     err_t err;
 } AcdStartContext;
 
+static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif);
+static void tcpip_retry_acd_deferred(void *arg);
+
 static bool netif_has_valid_hwaddr(struct netif *netif) {
     if (netif == NULL) {
         return false;
@@ -107,6 +123,7 @@ static bool netif_has_valid_hwaddr(struct netif *netif) {
 
 static void tcpip_acd_conflict_callback(struct netif *netif, acd_callback_enum_t state) {
     (void)netif;
+    ESP_LOGI(TAG, "ACD callback state=%d", (int)state);
     s_acd_last_state = state;
     switch (state) {
         case ACD_IP_OK:
@@ -126,7 +143,10 @@ static void tcpip_acd_start_cb(void *arg) {
     AcdStartContext *ctx = (AcdStartContext *)arg;
     ctx->err = ERR_OK;
     if (!s_acd_registered) {
+        ctx->netif->acd_list = NULL;
+        memset(&s_static_ip_acd, 0, sizeof(s_static_ip_acd));
         if (acd_add(ctx->netif, &s_static_ip_acd, tcpip_acd_conflict_callback) == ERR_OK) {
+            ESP_LOGI(TAG, "ACD client registered");
             s_acd_registered = true;
         } else {
             ctx->err = ERR_IF;
@@ -134,7 +154,9 @@ static void tcpip_acd_start_cb(void *arg) {
         }
     }
     acd_stop(&s_static_ip_acd);
+    ESP_LOGI(TAG, "Starting ACD probe via acd_start()");
     ctx->err = acd_start(ctx->netif, &s_static_ip_acd, ctx->ip);
+    ESP_LOGI(TAG, "acd_start() returned err=%d", (int)ctx->err);
 }
 
 static void tcpip_acd_stop_cb(void *arg) {
@@ -186,25 +208,28 @@ static bool tcpip_perform_acd(struct netif *netif, const ip4_addr_t *ip) {
         return false;
     }
 
-    if (xSemaphoreTake(s_acd_sem, pdMS_TO_TICKS(10000)) != pdTRUE) {
-        ESP_LOGE(TAG, "ACD probe timed out");
-        tcpip_callback_with_block(tcpip_acd_stop_cb, NULL, 1);
-        g_tcpip.status |= kTcpipStatusAcdStatus | kTcpipStatusAcdFault;
-        CipTcpIpSetLastAcdActivity(3);
-        return false;
-    }
+    TickType_t wait_ticks = pdMS_TO_TICKS(500);
 
-    if (s_acd_last_state == ACD_IP_OK) {
+    if (xSemaphoreTake(s_acd_sem, wait_ticks) == pdTRUE) {
+        ESP_LOGI(TAG, "ACD completed with state=%d", (int)s_acd_last_state);
+        if (s_acd_last_state == ACD_IP_OK) {
+            CipTcpIpSetLastAcdActivity(0);
+            return true;
+        }
+    } else if (s_acd_last_state == ACD_IP_OK) {
+        ESP_LOGW(TAG, "ACD completion detected without semaphore wake; continuing");
         CipTcpIpSetLastAcdActivity(0);
         return true;
     }
 
-    tcpip_callback_with_block(tcpip_acd_stop_cb, NULL, 1);
-    if (s_acd_last_state == ACD_DECLINE) {
-        ESP_LOGE(TAG, "ACD declined IP address");
-    } else {
-        ESP_LOGE(TAG, "ACD reported conflict (state=%d)", (int)s_acd_last_state);
+    if (s_acd_last_state == ACD_RESTART_CLIENT || s_acd_last_state == ACD_DECLINE) {
+        ESP_LOGI(TAG, "ACD probe timed out without conflict response; continuing with static IP");
+        CipTcpIpSetLastAcdActivity(0);
+        return true;
     }
+
+    ESP_LOGE(TAG, "ACD reported conflict (state=%d)", (int)s_acd_last_state);
+    tcpip_callback_with_block(tcpip_acd_stop_cb, NULL, 1);
     CipTcpIpSetLastAcdActivity(3);
     return false;
 }
@@ -214,9 +239,11 @@ static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif) 
         return;
     }
     if (!netif_has_valid_hwaddr(lwip_netif)) {
+        ESP_LOGI(TAG, "ACD deferred until MAC address is available");
         return;
     }
     if (!netif_is_link_up(lwip_netif)) {
+        ESP_LOGI(TAG, "ACD deferred until link is up");
         return;
     }
 
@@ -231,6 +258,15 @@ static void tcpip_try_pending_acd(esp_netif_t *netif, struct netif *lwip_netif) 
     opener_configure_dns(netif);
     s_acd_probe_pending = false;
     CipTcpIpSetLastAcdActivity(0);
+}
+
+static void tcpip_retry_acd_deferred(void *arg) {
+    esp_netif_t *netif = (esp_netif_t *)arg;
+    if (netif == NULL) {
+        return;
+    }
+    struct netif *lwip_netif = (struct netif *)esp_netif_get_netif_impl(netif);
+    tcpip_try_pending_acd(netif, lwip_netif);
 }
 #else
 static bool tcpip_perform_acd(struct netif *netif, const ip4_addr_t *ip) {
@@ -261,11 +297,40 @@ static void configure_netif_from_tcpip(esp_netif_t *netif) {
         ip_info.gw.addr = g_tcpip.interface_configuration.gateway;
         esp_netif_dhcpc_stop(netif);
 
+        if (ip_info_has_static_address(&ip_info)) {
+            ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
+        } else {
+            ESP_LOGW(TAG, "Static configuration missing IP/mask; attempting AutoIP fallback");
+#if CONFIG_LWIP_AUTOIP
+            if (lwip_netif != NULL && netifapi_autoip_start(lwip_netif) == ERR_OK) {
+                ESP_LOGI(TAG, "AutoIP started successfully");
+                g_tcpip.config_control &= ~kTcpipCfgCtrlMethodMask;
+                g_tcpip.config_control |= kTcpipCfgCtrlDhcp;
+                g_tcpip.interface_configuration.ip_address = 0;
+                g_tcpip.interface_configuration.network_mask = 0;
+                g_tcpip.interface_configuration.gateway = 0;
+                g_tcpip.interface_configuration.name_server = 0;
+                g_tcpip.interface_configuration.name_server_2 = 0;
+                NvTcpipStore(&g_tcpip);
+                return;
+            }
+            ESP_LOGE(TAG, "AutoIP start failed; falling back to DHCP");
+#endif
+            ESP_LOGW(TAG, "Switching interface to DHCP due to invalid static configuration");
+            g_tcpip.config_control &= ~kTcpipCfgCtrlMethodMask;
+            g_tcpip.config_control |= kTcpipCfgCtrlDhcp;
+            NvTcpipStore(&g_tcpip);
+            ESP_ERROR_CHECK(esp_netif_dhcpc_start(netif));
+            return;
+        }
+
 #if LWIP_IPV4 && LWIP_ACD
         s_pending_static_ip_cfg = ip_info;
         s_acd_probe_pending = true;
         CipTcpIpSetLastAcdActivity(1);
-        if (g_tcpip.select_acd && lwip_netif != NULL && netif_is_link_up(lwip_netif)) {
+        ESP_LOGI(TAG, "ACD path: select_acd=%d, lwip_netif=%p", g_tcpip.select_acd ? 1 : 0, (void *)lwip_netif);
+        if (g_tcpip.select_acd && lwip_netif != NULL) {
+            ESP_LOGI(TAG, "Scheduling ACD probe for static IP");
             tcpip_try_pending_acd(netif, lwip_netif);
         }
         if (!g_tcpip.select_acd) {
@@ -304,23 +369,17 @@ static void ethernet_event_handler(void *arg, esp_event_base_t event_base,
         if (!tcpip_config_uses_dhcp()) {
             struct netif *lwip_netif = (struct netif *)esp_netif_get_netif_impl(eth_netif);
             tcpip_try_pending_acd(eth_netif, lwip_netif);
+            sys_timeout(200, tcpip_retry_acd_deferred, eth_netif);
         }
         #endif
         SampleApplicationNotifyLinkUp();
-        if (!tcpip_config_uses_dhcp() && eth_netif != NULL) {
-            esp_netif_ip_info_t ip_info;
-            if (esp_netif_get_ip_info(eth_netif, &ip_info) == ESP_OK) {
-                ip_event_got_ip_t event = { .esp_netif = eth_netif };
-                event.ip_info = ip_info;
-                esp_event_post(IP_EVENT, IP_EVENT_ETH_GOT_IP, &event, sizeof(event), portMAX_DELAY);
-            }
-        }
         break;
     case ETHERNET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "Ethernet Link Down");
         #if LWIP_IPV4 && LWIP_ACD
         tcpip_callback_with_block(tcpip_acd_stop_cb, NULL, 1);
         #endif
+        s_opener_initialized = false;
         SampleApplicationNotifyLinkDown();
         break;
     case ETHERNET_EVENT_START:
@@ -377,6 +436,7 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
     if (netif_to_use != NULL) {
         SampleApplicationSetActiveNetif(netif_to_use);
         opener_init(netif_to_use);
+        s_opener_initialized = true;
         SampleApplicationNotifyLinkUp();
     } else {
         ESP_LOGE(TAG, "Failed to find netif");
@@ -392,6 +452,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(nvs_ret);
     (void)NvTcpipLoad(&g_tcpip);
+    ESP_LOGI(TAG, "After NV load select_acd=%d", g_tcpip.select_acd);
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -414,12 +475,12 @@ void app_main(void)
         g_tcpip.status &= ~(kTcpipStatusAcdStatus | kTcpipStatusAcdFault);
         NvTcpipStore(&g_tcpip);
     }
-    if (g_tcpip.select_acd) {
+    /* if (g_tcpip.select_acd) {
         ESP_LOGW(TAG, "ACD selection stored in NV; disabling at boot");
         g_tcpip.select_acd = false;
         g_tcpip.status &= ~(kTcpipStatusAcdStatus | kTcpipStatusAcdFault);
         NvTcpipStore(&g_tcpip);
-    }
+    } */
     if (tcpip_config_uses_dhcp()) {
         g_tcpip.interface_configuration.ip_address = 0;
         g_tcpip.interface_configuration.network_mask = 0;

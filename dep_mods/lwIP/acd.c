@@ -70,6 +70,40 @@
 
 #include "lwip/acd.h"
 #include "lwip/prot/acd.h"
+#include "lwip/etharp.h"
+#include "sdkconfig.h"
+
+#define ACD_DIAG(fmt, ...) LWIP_PLATFORM_DIAG(("ACD: " fmt "\n", ##__VA_ARGS__))
+
+static void
+acd_log_mac(const char *tag, const struct eth_addr *mac, const ip4_addr_t *sipaddr, const ip4_addr_t *dipaddr)
+{
+  if (mac != NULL) {
+    u16_t sip1 = 0, sip2 = 0, sip3 = 0, sip4 = 0;
+    u16_t dip1 = 0, dip2 = 0, dip3 = 0, dip4 = 0;
+    if (sipaddr != NULL) {
+      sip1 = ip4_addr1_16(sipaddr);
+      sip2 = ip4_addr2_16(sipaddr);
+      sip3 = ip4_addr3_16(sipaddr);
+      sip4 = ip4_addr4_16(sipaddr);
+    }
+    if (dipaddr != NULL) {
+      dip1 = ip4_addr1_16(dipaddr);
+      dip2 = ip4_addr2_16(dipaddr);
+      dip3 = ip4_addr3_16(dipaddr);
+      dip4 = ip4_addr4_16(dipaddr);
+    }
+    ACD_DIAG("%s hwsrc=%02x:%02x:%02x:%02x:%02x:%02x sip=%"U16_F".%"U16_F".%"U16_F".%"U16_F
+             " dip=%"U16_F".%"U16_F".%"U16_F".%"U16_F,
+             tag,
+             mac->addr[0], mac->addr[1], mac->addr[2],
+             mac->addr[3], mac->addr[4], mac->addr[5],
+             sip1, sip2, sip3, sip4,
+             dip1, dip2, dip3, dip4);
+  } else {
+    ACD_DIAG("%s (no mac)", tag);
+  }
+}
 
 #define ACD_FOREACH(acd, acd_list) for ((acd) = acd_list; (acd) != NULL; (acd) = (acd)->next)
 
@@ -92,12 +126,40 @@
 #endif /* LWIP_RAND */
 
 
+#ifdef CONFIG_OPENER_ACD_CUSTOM_TIMING
+#define OPENER_ACD_MS_TO_TICKS(ms) ((ms) == 0 ? 0 : (u16_t)(((ms) + (ACD_TMR_INTERVAL - 1)) / ACD_TMR_INTERVAL))
+#define OPENER_ACD_PROBE_WAIT_TICKS       OPENER_ACD_MS_TO_TICKS(CONFIG_OPENER_ACD_PROBE_WAIT_MS)
+#define OPENER_ACD_PROBE_MIN_TICKS        OPENER_ACD_MS_TO_TICKS(CONFIG_OPENER_ACD_PROBE_MIN_MS)
+#define OPENER_ACD_PROBE_MAX_TICKS        OPENER_ACD_MS_TO_TICKS(CONFIG_OPENER_ACD_PROBE_MAX_MS)
+#define OPENER_ACD_ANNOUNCE_INTERVAL_TICKS OPENER_ACD_MS_TO_TICKS(CONFIG_OPENER_ACD_ANNOUNCE_INTERVAL_MS)
+#define OPENER_ACD_ANNOUNCE_WAIT_TICKS     OPENER_ACD_MS_TO_TICKS(CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS)
+
+#undef PROBE_NUM
+#define PROBE_NUM CONFIG_OPENER_ACD_PROBE_NUM
+
+#undef ANNOUNCE_NUM
+#define ANNOUNCE_NUM CONFIG_OPENER_ACD_ANNOUNCE_NUM
+
+#define ACD_RANDOM_PROBE_WAIT(netif, acd) ((CONFIG_OPENER_ACD_PROBE_WAIT_MS == 0) ? 0 : \
+    (LWIP_ACD_RAND(netif, acd) % (OPENER_ACD_PROBE_WAIT_TICKS > 0 ? OPENER_ACD_PROBE_WAIT_TICKS : 1)))
+
+#define ACD_RANDOM_PROBE_INTERVAL(netif, acd) ((OPENER_ACD_PROBE_MAX_TICKS > OPENER_ACD_PROBE_MIN_TICKS) ? \
+    ((LWIP_ACD_RAND(netif, acd) % (OPENER_ACD_PROBE_MAX_TICKS - OPENER_ACD_PROBE_MIN_TICKS)) + OPENER_ACD_PROBE_MIN_TICKS) : \
+    OPENER_ACD_PROBE_MIN_TICKS)
+
+#define ACD_ANNOUNCE_WAIT_TICKS_VALUE      OPENER_ACD_ANNOUNCE_WAIT_TICKS
+#define ACD_ANNOUNCE_INTERVAL_TICKS_VALUE  (OPENER_ACD_ANNOUNCE_INTERVAL_TICKS > 0 ? OPENER_ACD_ANNOUNCE_INTERVAL_TICKS : 1)
+#else
 #define ACD_RANDOM_PROBE_WAIT(netif, acd) (LWIP_ACD_RAND(netif, acd) % \
                                     (PROBE_WAIT * ACD_TICKS_PER_SECOND))
 
 #define ACD_RANDOM_PROBE_INTERVAL(netif, acd) ((LWIP_ACD_RAND(netif, acd) % \
                                     ((PROBE_MAX - PROBE_MIN) * ACD_TICKS_PER_SECOND)) + \
                                     (PROBE_MIN * ACD_TICKS_PER_SECOND ))
+
+#define ACD_ANNOUNCE_WAIT_TICKS_VALUE      (ANNOUNCE_WAIT * ACD_TICKS_PER_SECOND)
+#define ACD_ANNOUNCE_INTERVAL_TICKS_VALUE  (ANNOUNCE_INTERVAL * ACD_TICKS_PER_SECOND)
+#endif
 
 /* Function definitions */
 static void acd_restart(struct netif *netif, struct acd *acd);
@@ -241,6 +303,7 @@ acd_tmr(void)
 {
   struct netif *netif;
   struct acd *acd;
+
   /* loop through netif's */
   NETIF_FOREACH(netif) {
     ACD_FOREACH(acd, netif->acd_list) {
@@ -262,6 +325,11 @@ acd_tmr(void)
           if (acd->ttw == 0) {
             acd->state = ACD_STATE_PROBING;
             etharp_acd_probe(netif, &acd->ipaddr);
+            {
+              struct eth_addr src_mac;
+              SMEMCPY(src_mac.addr, netif->hwaddr, ETH_HWADDR_LEN);
+              acd_log_mac("sent probe", &src_mac, &acd->ipaddr, NULL);
+            }
             LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE,
                         ("acd_tmr() PROBING Sent Probe\n"));
             acd->sent_num++;
@@ -272,7 +340,7 @@ acd_tmr(void)
               acd->sent_num = 0;
 
               /* calculate time to wait before announcing */
-              acd->ttw = (u16_t)(ANNOUNCE_WAIT * ACD_TICKS_PER_SECOND);
+              acd->ttw = ACD_ANNOUNCE_WAIT_TICKS_VALUE;
             } else {
               /* calculate time to wait to next probe */
               acd->ttw = (u16_t)(ACD_RANDOM_PROBE_INTERVAL(netif, acd));
@@ -296,9 +364,14 @@ acd_tmr(void)
             }
 
             etharp_acd_announce(netif, &acd->ipaddr);
+            {
+              struct eth_addr src_mac;
+              SMEMCPY(src_mac.addr, netif->hwaddr, ETH_HWADDR_LEN);
+              acd_log_mac("sent announce", &src_mac, &acd->ipaddr, NULL);
+            }
             LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE,
                         ("acd_tmr() ANNOUNCING Sent Announce\n"));
-            acd->ttw = ANNOUNCE_INTERVAL * ACD_TICKS_PER_SECOND;
+            acd->ttw = ACD_ANNOUNCE_INTERVAL_TICKS_VALUE;
             acd->sent_num++;
 
             if (acd->sent_num >= ANNOUNCE_NUM) {
@@ -388,6 +461,7 @@ acd_arp_reply(struct netif *netif, struct etharp_hdr *hdr)
   IPADDR_WORDALIGNED_COPY_TO_IP4_ADDR_T(&dipaddr, &hdr->dipaddr);
 
   LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE, ("acd_arp_reply()\n"));
+  acd_log_mac("received arp", &hdr->shwaddr, &sipaddr, &dipaddr);
 
   /* loop over the acd's*/
   ACD_FOREACH(acd, netif->acd_list) {
@@ -412,6 +486,7 @@ acd_arp_reply(struct netif *netif, struct etharp_hdr *hdr)
             (ip4_addr_isany_val(sipaddr) &&
              ip4_addr_eq(&dipaddr, &acd->ipaddr) &&
              !eth_addr_eq(&netifaddr, &hdr->shwaddr))) {
+          acd_log_mac("conflict detected", &hdr->shwaddr, &sipaddr, &dipaddr);
           LWIP_DEBUGF(ACD_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE | LWIP_DBG_LEVEL_WARNING,
                       ("acd_arp_reply(): Probe Conflict detected\n"));
           acd_restart(netif, acd);
