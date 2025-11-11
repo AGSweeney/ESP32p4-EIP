@@ -1,6 +1,10 @@
 # Ethernet/IP Device Types Cheat sheet
 
-
+> **Source**: This table is compiled from the official ODVA (Open DeviceNet Vendors Association) CIP (Common Industrial Protocol) specification documents, specifically:
+> - **ODVA Publication PUB00123R1** - "The Common Industrial Protocol (CIP™) and the Family of CIP Networks"
+> - Publicly available at: [https://www.odva.org/wp-content/uploads/2020/06/PUB00123R1_Common-Industrial_Protocol_and_Family_of_CIP_Networks.pdf](https://www.odva.org/wp-content/uploads/2020/06/PUB00123R1_Common-Industrial_Protocol_and_Family_of_CIP_Networks.pdf)
+> 
+> The class codes are standardized in the CIP specification and are used across EtherNet/IP, DeviceNet, ControlNet, and CompoNet networks.
 
 | Class Code (Hex) | Decimal | Object Name                                     |
 | ---------------- | ------- | ----------------------------------------------- |
