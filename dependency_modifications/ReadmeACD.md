@@ -71,21 +71,21 @@ This project implements **adjustable ACD timings** to comply with ODVA (Open Dev
 - **Direct Link**: [ODVA Document Library](https://www.odva.org/technology-standards/document-library/) (Search for "Pub 28" or "IP Addressing Methods")
 - **Relevance**: ODVA recommends ACD for static IP assignment but emphasizes faster timing for real-time industrial applications
 
-#### Current Configuration (ODVA-Optimized)
+#### Current Configuration (Testing)
 
-The project uses **custom ACD timings optimized for EtherNet/IP** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`). These values are significantly faster than RFC 5227 defaults to meet EtherNet/IP's real-time requirements:
+The project uses **custom ACD timings optimized/Testing for EtherNet/IP** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`). These values are significantly faster than RFC 5227 defaults to meet EtherNet/IP's real-time requirements:
 
-| Parameter | RFC 5227 Default | **ODVA-Optimized (Current)** | Description |
+| Parameter | RFC 5227 Default | **Testing (Current)** | Description |
 |-----------|------------------|------------------------------|-------------|
-| **PROBE_WAIT** | 1000 ms | **0 ms** | Initial random delay before first probe |
-| **PROBE_MIN** | 1000 ms | **20 ms** | Minimum delay between probe packets |
-| **PROBE_MAX** | 2000 ms | **20 ms** | Maximum delay between probe packets |
-| **PROBE_NUM** | 3 packets | **1 packet** | Number of probe packets to send |
-| **ANNOUNCE_WAIT** | 2000 ms | **20 ms** | Delay before first announcement |
+| **PROBE_WAIT** | 1000 ms | **100 ms** | Initial random delay before first probe |
+| **PROBE_MIN** | 1000 ms | **180 ms** | Minimum delay between probe packets |
+| **PROBE_MAX** | 2000 ms | **200 ms** | Maximum delay between probe packets |
+| **PROBE_NUM** | 3 packets | **4 packet** | Number of probe packets to send |
+| **ANNOUNCE_WAIT** | 2000 ms | **200 ms** | Delay before first announcement |
 | **ANNOUNCE_NUM** | 2 packets | **1 packet** | Number of announcement packets |
-| **ANNOUNCE_INTERVAL** | 2000 ms | **20 ms** | Time between announcement packets |
+| **ANNOUNCE_INTERVAL** | 2000 ms | **200 ms** | Time between announcement packets |
 
-**Total ACD time (ODVA-optimized)**: Approximately **60-100 ms** (vs. 7-10 seconds for RFC 5227 defaults)
+
 
 #### Configuration
 

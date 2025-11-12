@@ -144,6 +144,32 @@ These publications are official ODVA documents that provide comprehensive inform
 - **Direct Link**: [https://github.com/EIPStackGroup/EIPScanner](https://github.com/EIPStackGroup/EIPScanner)
 - **Synopsis**: C++ library implementing EtherNet/IP scanner functionality. Supports device discovery, connection establishment, explicit messaging, and implicit I/O. Useful for testing EtherNet/IP devices and understanding scanner-side protocol behavior. Can be used to develop test tools and diagnostic applications. Helps verify device compliance and interoperability.
 
+**EtherNet/IP Protocol Reference (Extracted from Hilscher Scanner Documentation)**
+- **Purpose**: Comprehensive protocol reference extracted from Hilscher EtherNet/IP Scanner Protocol API documentation
+- **Content**: CIP object details, connection management, messaging types, error codes, protocol fundamentals
+- **Relevance**: Useful protocol-level reference for adapter implementation
+- **Use Case**: Protocol reference, CIP object details, error code lookup, connection management understanding
+- **Direct Link**: [docs/EtherNetIP_Protocol_Reference.md](../docs/EtherNetIP_Protocol_Reference.md)
+- **Synopsis**: Extracted protocol information from Hilscher EtherNet/IP Scanner Protocol API V2.10.0. Contains detailed CIP object attributes, services, connection management details, error codes, and protocol fundamentals. While the source document targets scanner implementations, the protocol details are applicable to adapter implementations. Useful as a quick reference for CIP object structures, error codes, and protocol behavior.
+
+**EtherNet/IP Adapter Protocol Reference (Extracted from Hilscher Adapter Documentation V2.13.0)**
+- **Purpose**: Adapter-specific protocol reference extracted from Hilscher EtherNet/IP Adapter Protocol API documentation
+- **Content**: Adapter responsibilities, connection handling, I/O data processing, status management, error handling
+- **Relevance**: **HIGHLY RELEVANT** - Directly applicable to our adapter implementation
+- **Use Case**: Adapter implementation guidance, connection management, I/O handling, error codes, best practices
+- **Direct Link**: [docs/EtherNetIP_Adapter_Protocol_Reference.md](../docs/EtherNetIP_Adapter_Protocol_Reference.md)
+- **Source Document**: [Hilscher EtherNet/IP Adapter Protocol API V2.13.0](https://www.hilscher.com/fileadmin/cms_upload/de/Resources/pdf/EtherNetIP_Adapter_Protocol_API_20_EN.pdf)
+- **Synopsis**: Extracted adapter-specific information from Hilscher EtherNet/IP Adapter Protocol API V2.13.0. Contains detailed guidance on adapter responsibilities, Forward_Open/Forward_Close processing, I/O data handling, connection state management, error handling, and implementation best practices. This document is specifically for adapter implementations and provides practical guidance for our ESP32-P4 OpENer adapter project. Highly recommended as the primary reference for adapter-specific protocol behavior.
+
+**EtherNet/IP Adapter V3.4.0 Enhancements**
+- **Purpose**: Highlights new features and enhancements in V3.4.0 compared to V2.13.0
+- **Content**: Handshake modes, Predefined Connection Object, IO Mapping Object, enhanced connection management, additional services
+- **Relevance**: **HIGHLY RELEVANT** - New features that may be useful for advanced I/O synchronization and connection management
+- **Use Case**: Advanced features evaluation, handshake mode implementation, I/O mapping, enhanced connection management
+- **Direct Link**: [docs/EtherNetIP_Adapter_V3_Enhancements.md](../docs/EtherNetIP_Adapter_V3_Enhancements.md)
+- **Source Document**: [Hilscher EtherNet/IP Adapter Protocol API V3.4.0](https://www.hilscher.com/fileadmin/cms_upload/de/Resources/pdf/EtherNetIP_Adapter_V3_Protocol_API_04_EN.pdf)
+- **Synopsis**: Extracted new features from Hilscher EtherNet/IP Adapter Protocol API V3.4.0. Key additions include: Handshake Modes (Input/Output/Synchronization) for deterministic I/O synchronization, Predefined Connection Object for faster connection establishment, IO Mapping Object for flexible I/O mapping, and enhanced connection management with Forward_Open/Forward_Close indications. Particularly relevant for Phase 2 (I/O Abstraction Layer) of the ESP32-P4 project. Handshake modes are especially valuable for synchronized, deterministic I/O operations.
+
 **cpppo - EtherNet/IP CIP Python Library**
 - **Purpose**: Python library for EtherNet/IP and CIP message construction/parsing
 - **Content**: Python API for EtherNet/IP communication, CIP message handling, device interaction
