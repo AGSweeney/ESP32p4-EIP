@@ -912,18 +912,21 @@ This project implements **adjustable ACD timings** to comply with ODVA recommend
 
 The project uses **custom ACD timings optimized for EtherNet/IP** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`). These values are significantly faster than RFC 5227 defaults to meet EtherNet/IP's real-time requirements:
 
-| Parameter | RFC 5227 Default | **ODVA-Optimized (Current)** | Description |
-|-----------|------------------|------------------------------|-------------|
-| **PROBE_WAIT** | 1000 ms | **0 ms** | Initial random delay before first probe |
-| **PROBE_MIN** | 1000 ms | **20 ms** | Minimum delay between probe packets |
-| **PROBE_MAX** | 2000 ms | **20 ms** | Maximum delay between probe packets |
-| **PROBE_NUM** | 3 packets | **1 packet** | Number of probe packets to send |
-| **ANNOUNCE_WAIT** | 2000 ms | **20 ms** | Delay before first announcement |
-| **ANNOUNCE_NUM** | 2 packets | **1 packet** | Number of announcement packets |
-| **ANNOUNCE_INTERVAL** | 2000 ms | **20 ms** | Time between announcement packets |
-| **DEFEND_INTERVAL** | 10000 ms | **10000 ms** | Minimum interval between defensive ARPs |
+| Parameter | RFC 5227 Default | **TI Library Reference** | **ODVA-Optimized (Current)** | Description |
+|-----------|------------------|--------------------------|------------------------------|-------------|
+| **PROBE_WAIT** | 1000 ms | **200 ms** | **0 ms** | Initial delay before first probe (TI: fixed, no randomization) |
+| **PROBE_MIN** | 1000 ms | **200 ms** | **20 ms** | Minimum delay between probe packets |
+| **PROBE_MAX** | 2000 ms | **200 ms** | **20 ms** | Maximum delay between probe packets (TI: same as MIN for fixed timing) |
+| **PROBE_NUM** | 3 packets | **Not specified** | **1 packet** | Number of probe packets to send |
+| **ANNOUNCE_WAIT** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **20 ms** | Delay before first announcement (TI: standard 2000ms, Quick Connect 25ms) |
+| **ANNOUNCE_NUM** | 2 packets | **Not specified** | **1 packet** | Number of announcement packets |
+| **ANNOUNCE_INTERVAL** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **20 ms** | Time between announcement packets (TI: standard 2000ms, Quick Connect 25ms) |
+| **DEFEND_INTERVAL** | 10000 ms | **2000 ms** | **10000 ms** | Minimum interval between defensive ARPs |
+| **Ongoing Probe Min** | N/A | **90000 ms (90s)** | N/A | Minimum interval for ongoing conflict detection probes |
+| **Ongoing Probe Max** | N/A | **150000 ms (150s)** | N/A | Maximum interval for ongoing conflict detection probes |
+| **Timer Tick Period** | 100 ms | **5 ms** | 100 ms | ACD timer tick period |
 
-**Total ACD time (ODVA-optimized)**: Approximately **60-100 ms** (vs. 7-10 seconds for RFC 5227 defaults)
+**Total ACD time (ODVA-optimized)**: Approximately **60-100 ms** (vs. 7-10 seconds for RFC 5227 defaults, vs. ~600-800ms for TI library with 200ms timings)
 
 #### Configuration Method
 
@@ -977,7 +980,29 @@ menu "OpenER ACD Timing"
 endmenu
 ```
 
-**Current Values** (`sdkconfig.defaults`):
+**TI Library Reference Values** (for comparison):
+
+```
+# TI Library ACD Timing Reference Values
+# Timer Tick Period: 5ms
+# Initial Probe: 200ms fixed (no randomization)
+# Announcement: 2000ms (standard) or 200ms (fast) or 25ms (Quick Connect)
+# Defense Interval: 2000ms (2 seconds)
+# Ongoing Probes: 90-150 seconds (not implemented in ESP-IDF LWIP)
+
+# To match TI library timings:
+CONFIG_OPENER_ACD_CUSTOM_TIMING=y
+CONFIG_OPENER_ACD_PROBE_WAIT_MS=200      # Match TI: 200ms fixed
+CONFIG_OPENER_ACD_PROBE_MIN_MS=200       # Match TI: 200ms fixed
+CONFIG_OPENER_ACD_PROBE_MAX_MS=200       # Match TI: 200ms fixed (no range)
+CONFIG_OPENER_ACD_PROBE_NUM=3            # RFC 5227 default (TI not specified)
+CONFIG_OPENER_ACD_ANNOUNCE_NUM=2         # RFC 5227 default (TI not specified)
+CONFIG_OPENER_ACD_ANNOUNCE_INTERVAL_MS=2000  # Match TI: 2000ms standard mode
+CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS=2000      # Match TI: 2000ms standard mode
+# Note: TI also supports Quick Connect mode with 25ms announcement interval
+```
+
+**Current Project Values** (`sdkconfig.defaults` - EtherNet/IP optimized):
 
 ```
 CONFIG_OPENER_ACD_CUSTOM_TIMING=y
@@ -990,7 +1015,95 @@ CONFIG_OPENER_ACD_ANNOUNCE_INTERVAL_MS=20
 CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS=20
 ```
 
-**Note**: The optimized timings balance conflict detection reliability with EtherNet/IP's real-time communication requirements. For networks with high latency or packet loss, you may need to increase these values.
+**Note**: The optimized timings balance conflict detection reliability with EtherNet/IP's real-time communication requirements. For networks with high latency or packet loss, you may need to increase these values. The TI library uses 200ms fixed probe timing (faster than RFC 5227 but slower than current optimized values).
+
+### TI Library ACD Timing Reference
+
+The TI EtherNet/IP Adapter library uses the following ACD timing constants:
+
+#### Timer Configuration
+
+| Parameter | TI Library Value | ESP-IDF LWIP Value | Notes |
+|-----------|------------------|-------------------|-------|
+| **Timer Tick Period** | 5 ms | 100 ms | TI uses finer granularity |
+| **Ticks Per Second** | 200 ticks/sec | 10 ticks/sec | Based on tick period |
+
+#### Initial Probe Timing
+
+| Parameter | TI Library Value | Description |
+|-----------|------------------|-------------|
+| **PROBE_WAIT_MIN_FIRST** | 200 ms | Initial probe wait (fixed, no randomization) |
+| **PROBE_WAIT_MAX_FIRST** | 200 ms | Same as MIN (fixed timing) |
+| **ARP Probe Timer** | 200 ms (40 ticks) | Timer tick for probe packets |
+
+**Key Difference**: TI uses fixed 200ms timing (no randomization range), while RFC 5227 allows randomization between PROBE_MIN and PROBE_MAX.
+
+#### Announcement Timing
+
+| Parameter | TI Library Value | Description |
+|-----------|------------------|-------------|
+| **Standard Announcement** | 2000 ms (400 ticks) | Normal announcement interval |
+| **Fast Announcement** | 200 ms (40 ticks) | Fast announcement mode |
+| **Quick Connect Announcement** | 25 ms (5 ticks) | Quick Connect mode for fast startup |
+
+**Modes**:
+- **Standard Mode**: 2000ms announcement interval (RFC 5227 compliant)
+- **Fast Mode**: 200ms announcement interval (faster than RFC 5227)
+- **Quick Connect Mode**: 25ms announcement interval (EtherNet/IP specific)
+
+#### Defense Timing
+
+| Parameter | TI Library Value | RFC 5227 Default | Notes |
+|-----------|------------------|------------------|-------|
+| **DEFEND_INTERVAL** | 2000 ms (400 ticks) | 10000 ms (10s) | TI uses faster defense (5x faster) |
+
+#### Ongoing Detection Timing
+
+| Parameter | TI Library Value | ESP-IDF LWIP | Notes |
+|-----------|------------------|--------------|-------|
+| **Ongoing Probe Min** | 90000 ms (90s) | Not implemented | Periodic conflict detection |
+| **Ongoing Probe Max** | 150000 ms (150s) | Not implemented | Maximum interval for ongoing probes |
+
+**Note**: ESP-IDF LWIP implementation does not include ongoing probe mechanism. It uses passive monitoring only (listening for conflicting ARP packets).
+
+#### State Machine Comparison
+
+**TI Library States** (9 states):
+1. `ACD_STATE_NON_EXISTENT (0)`
+2. `ACD_STATE_WAIT_LINK_INTEGRITY (1)`
+3. `ACD_STATE_LINK_INTEGRITY (2)`
+4. `ACD_STATE_IP_ADDRESS_PROBING (3)`
+5. `ACD_STATE_IP_ADDRESS_ANNOUNCEMENT (4)`
+6. `ACD_STATE_ONGOING_DETECTION (5)` ← Includes ongoing probes
+7. `ACD_STATE_SEMI_ACTIVE_PROBE (6)`
+8. `ACD_STATE_DEFENSE (7)`
+9. `ACD_STATE_IP_LOST (8)`
+
+**ESP-IDF LWIP States** (8 states):
+1. `ACD_STATE_OFF`
+2. `ACD_STATE_PROBE_WAIT`
+3. `ACD_STATE_PROBING`
+4. `ACD_STATE_ANNOUNCE_WAIT`
+5. `ACD_STATE_ANNOUNCING`
+6. `ACD_STATE_ONGOING` ← Passive monitoring only
+7. `ACD_STATE_PASSIVE_ONGOING`
+8. `ACD_STATE_RATE_LIMIT`
+
+#### Timing Summary Table
+
+| Timing Aspect | TI Library | ESP-IDF LWIP (RFC 5227) | ESP-IDF LWIP (ODVA Optimized) |
+|---------------|------------|-------------------------|-------------------------------|
+| **Initial Probe** | 200ms fixed | 1000-2000ms random | 0-20ms |
+| **Announcement** | 2000ms (or 200ms or 25ms) | 2000ms | 20ms |
+| **Defense** | 2000ms | 10000ms | 10000ms |
+| **Ongoing Probes** | 90-150s | Not implemented | Not implemented |
+| **Timer Granularity** | 5ms | 100ms | 100ms |
+
+**Recommendations**:
+- For EtherNet/IP compatibility, consider using 200ms probe timing (closer to TI library)
+- Quick Connect mode (25ms announcement) may be beneficial for fast startup scenarios
+- Defense interval of 2000ms provides faster conflict response than RFC 5227's 10s
+- Ongoing probes (90-150s) provide continuous monitoring but add overhead
 
 ---
 
