@@ -22,9 +22,7 @@ The VL53L1x is a long-range ToF ranging sensor capable of measuring distances up
 
 - ESP32 series microcontroller (ESP32, ESP32-S2, ESP32-S3, ESP32-P4, etc.)
 - VL53L1x sensor module
-- I2C connections:
-  - SDA (Serial Data) - configurable GPIO
-  - SCL (Serial Clock) - configurable GPIO
+- I2C connections (default pins: SDA **GPIO 7**, SCL **GPIO 8**; configurable via Kconfig)
   - VCC (3.3V)
   - GND
   - Optional: XSHUT (shutdown pin)
@@ -56,8 +54,8 @@ idf_component_register(
 
 // Initialize I2C handle
 vl53l1x_i2c_handle_t vl53l1x_i2c_handle = VL53L1X_I2C_INIT;
-vl53l1x_i2c_handle.scl_gpio = GPIO_NUM_8;  // Your SCL GPIO
-vl53l1x_i2c_handle.sda_gpio = GPIO_NUM_7;  // Your SDA GPIO
+vl53l1x_i2c_handle.scl_gpio = GPIO_NUM_8;  // Default SCL GPIO (configurable)
+vl53l1x_i2c_handle.sda_gpio = GPIO_NUM_7;  // Default SDA GPIO (configurable)
 
 vl53l1x_handle_t vl53l1x_handle = VL53L1X_INIT;
 vl53l1x_handle.i2c_handle = &vl53l1x_i2c_handle;
@@ -364,8 +362,8 @@ The sensor data is updated at the configured rate (default: 10 Hz / 100ms). The 
 
 The I2C handle structure allows configuration of:
 - `i2c_port`: I2C port number (default: `I2C_NUM_0`)
-- `scl_gpio`: SCL GPIO pin number
-- `sda_gpio`: SDA GPIO pin number
+- `scl_gpio`: SCL GPIO pin number (default `GPIO_NUM_8`)
+- `sda_gpio`: SDA GPIO pin number (default `GPIO_NUM_7`)
 - `scl_speed_hz`: I2C clock speed (default: 400000 Hz)
 
 ### Device Configuration

@@ -15,6 +15,8 @@ without the PoE module) and include:
   LED.
 - Configurable TCP/IP settings persisted in NVS via CIP attributes.
 - Builds produced with ESP-IDF v5.5 toolchain.
+- Sensor I²C defaults wired for the WaveShare board: SDA **GPIO 7**, SCL
+  **GPIO 8** (configurable via Kconfig).
 
 ## Files
 
@@ -60,6 +62,10 @@ without the PoE module) and include:
    ```
 
    Press `Ctrl+]` to exit.
+
+## Board Pinout Reference
+
+![WaveShare ESP32-P4-NANO Pinout](../images/ESP32-P4-NANO-details-inter.jpg)
 
 ## Post-Flash Checklist
 

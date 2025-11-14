@@ -50,7 +50,7 @@ The VL53L1X ToF sensor is integrated into the EtherNet/IP input assembly, provid
 
 ### Sensor Configuration
 
-- **I2C Interface**: Configurable via Kconfig (`CONFIG_OPENER_I2C_SCL_GPIO`, `CONFIG_OPENER_I2C_SDA_GPIO`)
+- **I2C Interface**: Configurable via Kconfig (`CONFIG_OPENER_I2C_SCL_GPIO`, `CONFIG_OPENER_I2C_SDA_GPIO`) – defaults: SCL **GPIO 8**, SDA **GPIO 7**
 - **Default I2C Address**: `0x29`
 - **Update Rate**: 10 Hz (100ms intervals)
 - **Distance Mode**: Long range (up to 4 meters)
