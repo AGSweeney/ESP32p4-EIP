@@ -39,7 +39,102 @@
 - **TCA9555 – 16-bit I²C GPIO expander**  
   Adds two 8-bit ports with configurable direction and interrupt lines. [Datasheet](https://www.ti.com/lit/ds/symlink/tca9555.pdf)
 - **VL53L0X – time-of-flight distance sensor**  
-  Measures absolute distance up to two meters using ST’s FlightSense technology. [Datasheet](https://www.st.com/resource/en/datasheet/vl53l0x.pdf)
+  Measures absolute distance up to two meters using ST's FlightSense technology. [Datasheet](https://www.st.com/resource/en/datasheet/vl53l0x.pdf)
+- **VL53L1X – long-range time-of-flight distance sensor**  
+  Measures absolute distance up to four meters using ST's FlightSense technology with enhanced signal processing. [Datasheet](https://www.st.com/resource/en/datasheet/vl53l1x.pdf)
+
+## VL53L1X Sensor Integration
+
+The VL53L1X ToF sensor is integrated into the EtherNet/IP input assembly, providing real-time distance measurements and sensor status information to connected PLCs.
+
+### Sensor Configuration
+
+- **I2C Interface**: Configurable via Kconfig (`CONFIG_OPENER_I2C_SCL_GPIO`, `CONFIG_OPENER_I2C_SDA_GPIO`)
+- **Default I2C Address**: `0x29`
+- **Update Rate**: 10 Hz (100ms intervals)
+- **Distance Mode**: Long range (up to 4 meters)
+- **Task Core**: Core 1 (OpENer and lwIP run on Core 0)
+
+### Input Assembly Byte Layout
+
+Sensor data is written to bytes 0-8 of Input Assembly 100 (`g_assembly_data064`) in little-endian format:
+
+| Byte(s) | Data Type | Description | Units | Valid Range |
+|---------|-----------|-------------|-------|-------------|
+| 0-1 | `uint16_t` | **Distance** | millimeters (mm) | 0-4000 mm (0 = no target) |
+| 2 | `uint8_t` | **Status** | Range status code | 0 = valid, see status codes below |
+| 3-4 | `uint16_t` | **Ambient** | Ambient light level | kcps (kilo counts per second) |
+| 5-6 | `uint16_t` | **SigPerSPAD** | Signal per SPAD | kcps/SPAD |
+| 7-8 | `uint16_t` | **NumSPADs** | Number of enabled SPADs | count (typically 16-64) |
+
+**Note:** Bytes 9-31 of the input assembly are available for other application data and are not overwritten by the sensor task.
+
+### Range Status Codes
+
+| Code | Description |
+|------|-------------|
+| 0 | No error (valid measurement) |
+| 1 | Sigma failed (measurement uncertainty too high) |
+| 2 | Signal failed (signal too weak) |
+| 3 | Target out of range |
+| 4 | Signal failed |
+| 5 | Range valid but wrapped |
+| 6 | Target out of range |
+| 7 | Wrap-around (target beyond max range) |
+| 9-13 | Range valid but wrapped |
+| 255 | Invalid/unknown status |
+
+### PLC Integration Example (Allen-Bradley Micro850)
+
+For Structured Text conversion from SINT array to sensor variables:
+
+```structured_text
+PROGRAM VL53L1x_Sensor_Data
+VAR
+    ESP32p4_I : ARRAY[0..31] OF SINT;
+    Distance_mm : UINT;
+    Status : SINT;
+    Ambient_kcps : UINT;
+    SigPerSPAD_kcps : UINT;
+    NumSPADs : UINT;
+    ByteLow : BYTE;
+    ByteHigh : BYTE;
+END_VAR
+
+// Convert Distance (bytes 0-1, little-endian)
+ByteLow := ANY_TO_BYTE(ESP32p4_I[0]);
+ByteHigh := ANY_TO_BYTE(ESP32p4_I[1]);
+Distance_mm := ANY_TO_UINT(ByteLow) + ((ANY_TO_UINT(ByteHigh) * 256));
+
+// Extract Status (byte 2)
+Status := ESP32p4_I[2];
+
+// Convert Ambient (bytes 3-4, little-endian)
+ByteLow := ANY_TO_BYTE(ESP32p4_I[3]);
+ByteHigh := ANY_TO_BYTE(ESP32p4_I[4]);
+Ambient_kcps := ANY_TO_UINT(ByteLow) + ((ANY_TO_UINT(ByteHigh) * 256));
+
+// Convert SigPerSPAD (bytes 5-6, little-endian)
+ByteLow := ANY_TO_BYTE(ESP32p4_I[5]);
+ByteHigh := ANY_TO_BYTE(ESP32p4_I[6]);
+SigPerSPAD_kcps := ANY_TO_UINT(ByteLow) + ((ANY_TO_UINT(ByteHigh) * 256));
+
+// Convert NumSPADs (bytes 7-8, little-endian)
+ByteLow := ANY_TO_BYTE(ESP32p4_I[7]);
+ByteHigh := ANY_TO_BYTE(ESP32p4_I[8]);
+NumSPADs := ANY_TO_UINT(ByteLow) + ((ANY_TO_UINT(ByteHigh) * 256));
+END_PROGRAM
+```
+
+### Sensor Data Interpretation
+
+- **Distance_mm**: Valid range is typically 50-4000 mm. Values of 0 usually indicate no target detected or out of range.
+- **Status**: Always check `Status = 0` before using distance values. Non-zero values indicate measurement errors or out-of-range conditions.
+- **Ambient_kcps**: Higher values indicate brighter ambient light, which may affect measurement accuracy.
+- **SigPerSPAD_kcps**: Higher values indicate stronger return signal. Values > 100 kcps/SPAD typically indicate good signal quality.
+- **NumSPADs**: Number of active SPADs used for measurement. Typically ranges from 16-64 depending on configuration.
+
+For detailed sensor API documentation, see [components/vl53l1x_uld/README.md](components/vl53l1x_uld/README.md).
 
 ## Enabled EtherNet/IP Objects
 - **Class 0x02 – Message Router**  
@@ -60,8 +155,8 @@
   Present in the code base but **not** instantiated on this platform because the ESP32-P4 design has only a single Ethernet port and lacks the dual-MAC hardware required for ring supervision.
 
 ## I/O Assemblies
-- `Input Assembly 100` (`g_assembly_data064`, 32 bytes): produced data for originators; updated by the sample application logic
-- `Output Assembly 150` (`g_assembly_data096`, 32 bytes): consumed data written by originators; updates can trigger local actions
+- `Input Assembly 100` (`g_assembly_data064`, 32 bytes): produced data for originators; bytes 0-8 contain VL53L1X sensor data (distance, status, ambient, signal quality, SPAD count); bytes 9-31 available for other application data
+- `Output Assembly 150` (`g_assembly_data096`, 32 bytes): consumed data written by originators; bit 0 controls GPIO33 status LED; updates can trigger local actions
 - `Configuration Assembly 151` (`g_assembly_data097`, 10 bytes): optional per-connection configuration image
 - Exclusive Owner, Input Only, and Listen Only connection points are pre-configured for assembly 100/150/151 triplets
 - Run/Idle headers for both O→T and T→O traffic are disabled by default (can be re-enabled if required)
