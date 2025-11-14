@@ -14,6 +14,20 @@ menu "OpenER Ethernet Configuration"
         default 52
 endmenu
 
+menu "OpenER I2C Configuration"
+    config OPENER_I2C_SCL_GPIO
+        int "I2C SCL GPIO"
+        default 8
+        help
+            GPIO pin number for I2C clock line (SCL)
+    
+    config OPENER_I2C_SDA_GPIO
+        int "I2C SDA GPIO"
+        default 7
+        help
+            GPIO pin number for I2C data line (SDA)
+endmenu
+
 menu "OpenER ACD Timing"
     config OPENER_ACD_CUSTOM_TIMING
         bool "Override default RFC5227 timings"

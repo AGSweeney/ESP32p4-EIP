@@ -759,6 +759,13 @@ CONFIG_OPENER_ETH_MDIO_GPIO=52
 # end of OpenER Ethernet Configuration
 
 #
+# OpenER I2C Configuration
+#
+CONFIG_OPENER_I2C_SCL_GPIO=8
+CONFIG_OPENER_I2C_SDA_GPIO=7
+# end of OpenER I2C Configuration
+
+#
 # OpenER ACD Timing
 #
 CONFIG_OPENER_ACD_CUSTOM_TIMING=y

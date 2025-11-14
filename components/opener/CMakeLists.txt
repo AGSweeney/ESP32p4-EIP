@@ -85,6 +85,7 @@ idf_component_register(
     PRIV_REQUIRES
         lwip
         freertos
+        vl53l1x_uld
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ESP32)

@@ -30,4 +30,5 @@ idf_component_register(
         tca9534
         tca9555
         vl53l0x
+        vl53l1x_uld
 )
