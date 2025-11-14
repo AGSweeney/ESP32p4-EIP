@@ -8,14 +8,19 @@ The VL53L1x is a long-range ToF ranging sensor capable of measuring distances up
 
 ## Features
 
+### Core Capabilities
+
 - **Distance Measurement**: Up to 4 meters in Long mode, 1.3 meters in Short mode
 - **High Update Rate**: Up to 30 Hz (Long mode) or 50 Hz (Short mode)
 - **I2C Interface**: Standard I2C communication (default address: 0x29)
 - **Multiple Distance Modes**: Short and Long range modes
 - **Configurable Timing Budget**: 15ms to 500ms
-- **ROI Configuration**: Configurable Region of Interest (ROI)
-- **Calibration Support**: Offset and crosstalk (xtalk) calibration
-- **Status Information**: Range status, signal rate, ambient light, SPAD count
+- **ROI Configuration**: Configurable Region of Interest (ROI) with size and center control
+- **Calibration Support**: Offset, crosstalk (xtalk), and temperature calibration
+- **Status Information**: Comprehensive range status, signal rate, ambient light, SPAD count
+- **Threshold Detection**: Configurable distance thresholds with window detection modes
+- **Interrupt Support**: Configurable interrupt polarity and threshold-based interrupts
+- **Multiple Sensor Support**: Dynamic I2C address change for multiple sensors on same bus
 - **ESP-IDF Integration**: Native ESP-IDF I2C master driver support
 
 ## Hardware Requirements
@@ -243,60 +248,60 @@ Log the signal rate.
 void vl53l1x_log_signal_rate(const vl53l1x_device_handle_t *device);
 ```
 
-## Advanced API (VL53L1X_api.h)
+## Sensor Data Outputs
 
-For advanced configuration, you can use the low-level API functions directly:
+The VL53L1x sensor provides comprehensive measurement data:
 
-### Distance Mode Configuration
+### Primary Data
 
-```c
-VL53L1X_ERROR VL53L1X_SetDistanceMode(uint16_t dev, uint16_t DistanceMode);
-VL53L1X_ERROR VL53L1X_GetDistanceMode(uint16_t dev, uint16_t *pDistanceMode);
-```
+1. **Distance** (`uint16_t`)
+   - Units: millimeters (mm)
+   - Range: 0-4000mm (Long mode) or 0-1300mm (Short mode)
+   - Value of 0 typically indicates no target detected or out of range
 
-**Distance Modes:**
-- `1` = SHORT (up to 1.3m, better ambient immunity)
-- `2` = LONG (up to 4m, default)
+2. **Range Status** (`uint8_t`)
+   - Indicates measurement validity and error conditions
+   - Status codes:
+     - `0` - No error (valid measurement)
+     - `1` - Sigma failed (measurement uncertainty too high)
+     - `2` - Signal failed (signal too weak)
+     - `3` - Target out of range
+     - `4` - Signal failed
+     - `5` - Range valid but wrapped
+     - `6` - Target out of range
+     - `7` - Wrap-around (target beyond max range)
+     - `9` - Range valid but wrapped
+     - `10` - Target out of range
+     - `11-13` - Range valid but wrapped
+     - `255` - Invalid/unknown status
 
-### Timing Budget Configuration
+3. **Ambient Light Level** (`uint16_t`)
+   - Units: kcps (kilo counts per second)
+   - Measures background ambient light interference
+   - Useful for determining measurement quality
 
-```c
-VL53L1X_ERROR VL53L1X_SetTimingBudgetInMs(uint16_t dev, uint16_t TimingBudgetInMs);
-VL53L1X_ERROR VL53L1X_GetTimingBudgetInMs(uint16_t dev, uint16_t *pTimingBudgetInMs);
-```
+4. **Signal Rate** (`uint16_t`)
+   - Units: kcps (kilo counts per second)
+   - Total returned signal strength
+   - Higher values indicate stronger target reflection
 
-**Available Timing Budgets:** 15, 20, 33, 50, 100 (default), 200, 500 ms
+5. **Signal Per SPAD** (`uint16_t`)
+   - Units: kcps/SPAD (kilo counts per second per SPAD)
+   - Normalized signal strength per enabled SPAD
+   - Useful for comparing measurements across different ROI configurations
 
-**Note:** Inter-measurement period must be ≥ timing budget.
+6. **Number of Enabled SPADs** (`uint16_t`)
+   - Count of active SPAD (Single Photon Avalanche Diode) elements
+   - Depends on ROI configuration
+   - More SPADs generally provide better accuracy
 
-### Inter-Measurement Period
-
-```c
-VL53L1X_ERROR VL53L1X_SetInterMeasurementInMs(uint16_t dev, uint32_t InterMeasurementInMs);
-VL53L1X_ERROR VL53L1X_GetInterMeasurementInMs(uint16_t dev, uint16_t *pIM);
-```
-
-### Range Status
-
-```c
-VL53L1X_ERROR VL53L1X_GetRangeStatus(uint16_t dev, uint8_t *rangeStatus);
-```
-
-**Status Codes:**
-- `0` - No error (valid measurement)
-- `1` - Sigma failed (measurement uncertainty too high)
-- `2` - Signal failed (signal too weak)
-- `3` - Target out of range
-- `4` - Signal failed
-- `5` - Range valid but wrapped
-- `6` - Target out of range
-- `7` - Wrap-around (target beyond max range)
-- `9` - Range valid but wrapped
-- `10` - Target out of range
-- `11-13` - Range valid but wrapped
-- `255` - Invalid/unknown status
+7. **Sensor ID** (`uint16_t`)
+   - Should read `0xEEAC` for VL53L1X
+   - Used for device identification and validation
 
 ### Complete Result Structure
+
+All measurement data can be retrieved in a single read operation:
 
 ```c
 VL53L1X_ERROR VL53L1X_GetResult(uint16_t dev, VL53L1X_Result_t *pResult);
@@ -312,6 +317,215 @@ typedef struct {
     uint16_t NumSPADs;   // Number of enabled SPADs
 } VL53L1X_Result_t;
 ```
+
+## Configuration Capabilities
+
+The VL53L1x library provides extensive configuration options:
+
+### 1. Distance Mode Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetDistanceMode(uint16_t dev, uint16_t DistanceMode);
+VL53L1X_ERROR VL53L1X_GetDistanceMode(uint16_t dev, uint16_t *pDistanceMode);
+```
+
+**Distance Modes:**
+- `1` = SHORT (up to 1.3m, better ambient immunity, faster updates)
+- `2` = LONG (up to 4m, default, better for longer ranges)
+
+**When to use:**
+- **SHORT mode**: Indoor applications, close-range detection (<1.3m), high ambient light
+- **LONG mode**: Outdoor applications, longer ranges (1-4m), lower ambient light
+
+### 2. Timing Budget Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetTimingBudgetInMs(uint16_t dev, uint16_t TimingBudgetInMs);
+VL53L1X_ERROR VL53L1X_GetTimingBudgetInMs(uint16_t dev, uint16_t *pTimingBudgetInMs);
+```
+
+**Available Timing Budgets:** 15, 20, 33, 50, 100 (default), 200, 500 ms
+
+**Trade-offs:**
+- **Shorter timing budget** (15-33ms): Faster updates, lower accuracy, higher power consumption
+- **Longer timing budget** (100-500ms): Slower updates, higher accuracy, better noise immunity
+
+**Note:** Inter-measurement period must be ≥ timing budget.
+
+### 3. Inter-Measurement Period
+
+```c
+VL53L1X_ERROR VL53L1X_SetInterMeasurementInMs(uint16_t dev, uint32_t InterMeasurementInMs);
+VL53L1X_ERROR VL53L1X_GetInterMeasurementInMs(uint16_t dev, uint16_t *pIM);
+```
+
+Controls the delay between consecutive measurements in continuous mode.
+- Must be ≥ timing budget
+- Default: 100ms
+- Lower values = higher update rate (up to sensor limits)
+
+### 4. Region of Interest (ROI) Configuration
+
+**ROI Size:**
+```c
+VL53L1X_ERROR VL53L1X_SetROI(uint16_t dev, uint16_t X, uint16_t Y);
+VL53L1X_ERROR VL53L1X_GetROI_XY(uint16_t dev, uint16_t *ROI_X, uint16_t *ROI_Y);
+```
+- X, Y: ROI width and height (minimum 4, maximum 16)
+- Smaller ROI = faster measurements, narrower field of view
+- Larger ROI = slower measurements, wider field of view
+
+**ROI Center:**
+```c
+VL53L1X_ERROR VL53L1X_SetROICenter(uint16_t dev, uint8_t ROICenter);
+VL53L1X_ERROR VL53L1X_GetROICenter(uint16_t dev, uint8_t *ROICenter);
+```
+- Center SPAD index: 0-199
+- Allows fine-tuning the measurement center point
+- Default: 199 (center of SPAD array)
+
+### 5. Offset Calibration
+
+```c
+VL53L1X_ERROR VL53L1X_SetOffset(uint16_t dev, int16_t OffsetValue);
+VL53L1X_ERROR VL53L1X_GetOffset(uint16_t dev, int16_t *Offset);
+```
+
+**Purpose:** Compensates for systematic distance measurement errors
+- Units: millimeters (mm)
+- Can be positive or negative
+- Typically calibrated at 100mm distance with grey 17% target
+- Should be recalibrated if sensor is replaced or environment changes significantly
+
+### 6. Crosstalk (Xtalk) Calibration
+
+```c
+VL53L1X_ERROR VL53L1X_SetXtalk(uint16_t dev, uint16_t XtalkValue);
+VL53L1X_ERROR VL53L1X_GetXtalk(uint16_t dev, uint16_t *Xtalk);
+```
+
+**Purpose:** Compensates for photons reflected from cover glass
+- Units: cps (counts per second)
+- Typically calibrated at inflection point (~600mm) with grey 17% target
+- Important for accurate measurements at medium distances
+- Should be recalibrated if cover glass is changed
+
+### 7. Temperature Calibration
+
+```c
+VL53L1X_ERROR VL53L1X_StartTemperatureUpdate(uint16_t dev);
+```
+
+**Purpose:** Updates internal temperature compensation
+- Should be called when temperature changes by >8°C
+- Automatically called during initialization
+- Improves measurement accuracy over temperature variations
+
+### 8. Signal Threshold Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetSignalThreshold(uint16_t dev, uint16_t signal);
+VL53L1X_ERROR VL53L1X_GetSignalThreshold(uint16_t dev, uint16_t *signal);
+```
+
+**Purpose:** Sets minimum signal strength threshold for valid measurements
+- Units: kcps (kilo counts per second)
+- Default: 1024 kcps
+- Lower values = more sensitive, may include noise
+- Higher values = less sensitive, may miss weak targets
+
+### 9. Sigma Threshold Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetSigmaThreshold(uint16_t dev, uint16_t sigma);
+VL53L1X_ERROR VL53L1X_GetSigmaThreshold(uint16_t dev, uint16_t *signal);
+```
+
+**Purpose:** Sets maximum measurement uncertainty threshold
+- Units: millimeters (mm)
+- Default: 15 mm
+- Lower values = stricter quality requirements
+- Higher values = more lenient, may accept noisier measurements
+
+### 10. Distance Threshold Detection
+
+```c
+VL53L1X_ERROR VL53L1X_SetDistanceThreshold(uint16_t dev, uint16_t ThreshLow,
+                                           uint16_t ThreshHigh, uint8_t Window,
+                                           uint8_t IntOnNoTarget);
+VL53L1X_ERROR VL53L1X_GetDistanceThresholdWindow(uint16_t dev, uint16_t *window);
+VL53L1X_ERROR VL53L1X_GetDistanceThresholdLow(uint16_t dev, uint16_t *low);
+VL53L1X_ERROR VL53L1X_GetDistanceThresholdHigh(uint16_t dev, uint16_t *high);
+```
+
+**Purpose:** Configures distance-based interrupt generation
+
+**Window Modes:**
+- `0` = Below threshold (interrupt when distance < ThreshLow)
+- `1` = Above threshold (interrupt when distance > ThreshHigh)
+- `2` = Out of window (interrupt when distance < ThreshLow OR distance > ThreshHigh)
+- `3` = In window (interrupt when ThreshLow ≤ distance ≤ ThreshHigh)
+
+**Example:**
+```c
+// Trigger interrupt when target is between 100mm and 300mm
+VL53L1X_SetDistanceThreshold(dev, 100, 300, 3, 0);
+```
+
+### 11. Interrupt Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetInterruptPolarity(uint16_t dev, uint8_t IntPol);
+VL53L1X_ERROR VL53L1X_GetInterruptPolarity(uint16_t dev, uint8_t *pIntPol);
+VL53L1X_ERROR VL53L1X_ClearInterrupt(uint16_t dev);
+VL53L1X_ERROR VL53L1X_CheckForDataReady(uint16_t dev, uint8_t *isDataReady);
+```
+
+**Interrupt Polarity:**
+- `1` = Active high (default)
+- `0` = Active low
+
+**Interrupt Events:**
+- New sample ready (default)
+- Distance threshold crossed (when configured)
+
+### 12. I2C Address Configuration
+
+```c
+VL53L1X_ERROR VL53L1X_SetI2CAddress(uint16_t dev, uint8_t new_address);
+bool vl53l1x_update_device_address(vl53l1x_device_handle_t *device, uint8_t new_address);
+```
+
+**Purpose:** Change I2C address for multiple sensors on same bus
+- Default address: `0x29`
+- Allows up to 16 sensors on one I2C bus (with address changes)
+- Use XSHUT pin to change address during initialization
+
+### 13. Ranging Control
+
+```c
+VL53L1X_ERROR VL53L1X_StartRanging(uint16_t dev);
+VL53L1X_ERROR VL53L1X_StopRanging(uint16_t dev);
+```
+
+**Purpose:** Start/stop continuous ranging mode
+- Start ranging begins continuous measurements
+- Stop ranging halts measurements (useful before calibration)
+
+### 14. Boot State and Sensor ID
+
+```c
+VL53L1X_ERROR VL53L1X_BootState(uint16_t dev, uint8_t *state);
+VL53L1X_ERROR VL53L1X_GetSensorId(uint16_t dev, uint16_t *id);
+```
+
+**Purpose:** Check sensor initialization status and verify device type
+- Boot state: `0` = booted, `1` = not booted
+- Sensor ID: Should be `0xEEAC` for VL53L1X
+
+## Advanced API (VL53L1X_api.h)
+
+For advanced configuration, you can use the low-level API functions directly. All functions above are available through the `VL53L1X_api.h` header. The wrapper functions in `vl53l1x.h` provide a simplified interface for common operations.
 
 ## EtherNet/IP Integration
 
@@ -356,7 +570,7 @@ The sensor data is updated at the configured rate (default: 10 Hz / 100ms). The 
 
 **Note:** Bytes 9-31 of the input assembly are available for other application data and are not overwritten by the sensor task.
 
-## Configuration
+## Hardware Configuration
 
 ### I2C Configuration
 
@@ -371,8 +585,12 @@ The I2C handle structure allows configuration of:
 The device handle structure includes:
 - `i2c_address`: I2C address (default: `0x29`)
 - `xshut_gpio`: XSHUT GPIO pin (optional, `GPIO_NUM_NC` if not used)
+  - Used for hardware reset and address change
+  - Pull low to reset sensor
 - `interrupt_gpio`: Interrupt GPIO pin (optional, `GPIO_NUM_NC` if not used)
-- `scl_speed_hz`: I2C clock speed for this device
+  - Used for interrupt-based data ready detection
+  - Reduces CPU polling overhead
+- `scl_speed_hz`: I2C clock speed for this device (default: 400000 Hz)
 
 ## Update Rates
 

@@ -7,6 +7,7 @@
 #include "esp_log.h"
 
 #include "i2c_device_handler.h"
+#include "vl53l1x_config.h"
 
 static const char *TAG = "VL53L1X";
 
@@ -58,13 +59,25 @@ bool vl53l1x_add_device(vl53l1x_device_handle_t *device)
     }
     ESP_LOGI(TAG, "device initialized successfully");
 
-    // configuration
-    VL53L1X_SetDistanceMode(device->dev, LONG);
+    // Load configuration from NVS
+    vl53l1x_config_t config;
+    bool config_loaded = vl53l1x_config_load(&config);
+    if (!config_loaded) {
+        ESP_LOGI(TAG, "Using default configuration");
+        vl53l1x_config_get_defaults(&config);
+    } else {
+        ESP_LOGI(TAG, "Loaded saved configuration from NVS");
+    }
 
-    // calibraton
+    // Apply configuration
+    if (!vl53l1x_apply_config(device, &config)) {
+        ESP_LOGW(TAG, "Failed to apply some configuration settings, using defaults");
+        vl53l1x_config_get_defaults(&config);
+        vl53l1x_apply_config(device, &config);
+    }
+
+    // Temperature calibration
     VL53L1X_StartTemperatureUpdate(device->dev);
-    // VL53L1X_CalibrateOffset(device->dev, 100, NULL);
-    // VL53L1X_CalibrateXtalk(device->dev, 100, NULL);
 
     ESP_LOGI(TAG, "device ready");
     VL53L1X_StartRanging(device->dev);
@@ -241,6 +254,117 @@ bool vl53l1x_get_roi_center(const vl53l1x_device_handle_t *device, uint8_t *cent
         ESP_LOGE(TAG, "ROI center read failed with error: %d", status);
         return false;
     }
+}
+
+bool vl53l1x_apply_config(vl53l1x_device_handle_t *device, const void *config_ptr)
+{
+    if (!device || !config_ptr) {
+        ESP_LOGE(TAG, "Invalid parameters for apply_config");
+        return false;
+    }
+
+    const vl53l1x_config_t *config = (const vl53l1x_config_t *)config_ptr;
+    VL53L1X_ERROR status;
+    bool success = true;
+
+    // Stop ranging before configuration changes
+    VL53L1X_StopRanging(device->dev);
+
+    // Apply distance mode
+    status = VL53L1X_SetDistanceMode(device->dev, config->distance_mode);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set distance mode: %d", status);
+        success = false;
+    }
+
+    // Apply timing budget
+    status = VL53L1X_SetTimingBudgetInMs(device->dev, config->timing_budget_ms);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set timing budget: %d", status);
+        success = false;
+    }
+
+    // Apply inter-measurement period
+    status = VL53L1X_SetInterMeasurementInMs(device->dev, config->inter_measurement_ms);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set inter-measurement period: %d", status);
+        success = false;
+    }
+
+    // Apply ROI
+    status = VL53L1X_SetROI(device->dev, config->roi_x_size, config->roi_y_size);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set ROI: %d", status);
+        success = false;
+    }
+
+    // Apply ROI center
+    status = VL53L1X_SetROICenter(device->dev, config->roi_center_spad);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set ROI center: %d", status);
+        success = false;
+    }
+
+    // Apply offset
+    status = VL53L1X_SetOffset(device->dev, config->offset_mm);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set offset: %d", status);
+        success = false;
+    }
+
+    // Apply xtalk
+    status = VL53L1X_SetXtalk(device->dev, config->xtalk_cps);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set xtalk: %d", status);
+        success = false;
+    }
+
+    // Apply signal threshold
+    status = VL53L1X_SetSignalThreshold(device->dev, config->signal_threshold_kcps);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set signal threshold: %d", status);
+        success = false;
+    }
+
+    // Apply sigma threshold
+    status = VL53L1X_SetSigmaThreshold(device->dev, config->sigma_threshold_mm);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set sigma threshold: %d", status);
+        success = false;
+    }
+
+    // Apply distance thresholds (if enabled)
+    if (config->threshold_low_mm > 0 || config->threshold_high_mm > 0) {
+        status = VL53L1X_SetDistanceThreshold(device->dev, 
+                                              config->threshold_low_mm,
+                                              config->threshold_high_mm,
+                                              config->threshold_window,
+                                              0);
+        if (status != 0) {
+            ESP_LOGE(TAG, "Failed to set distance threshold: %d", status);
+            success = false;
+        }
+    }
+
+    // Apply interrupt polarity
+    status = VL53L1X_SetInterruptPolarity(device->dev, config->interrupt_polarity);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to set interrupt polarity: %d", status);
+        success = false;
+    }
+
+    // Restart ranging
+    status = VL53L1X_StartRanging(device->dev);
+    if (status != 0) {
+        ESP_LOGE(TAG, "Failed to restart ranging: %d", status);
+        success = false;
+    }
+
+    if (success) {
+        ESP_LOGI(TAG, "Configuration applied successfully");
+    }
+
+    return success;
 }
 
 void wait_boot(uint16_t dev)

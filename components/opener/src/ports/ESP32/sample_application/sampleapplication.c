@@ -50,6 +50,9 @@ static vl53l1x_handle_t s_vl53l1x_handle = VL53L1X_INIT;
 static vl53l1x_device_handle_t s_vl53l1x_device = VL53L1X_DEVICE_INIT;
 static TaskHandle_t s_vl53l1x_task_handle = NULL;
 
+// Export device handle for webui_api.c
+void *g_vl53l1x_device_handle = NULL;
+
 static void IdentityEnter(CipIdentityState state,
                           CipIdentityExtendedStatus ext_status) {
   if (g_identity.state != (CipUsint)state) {
@@ -171,6 +174,7 @@ static void vl53l1x_sensor_task(void *pvParameters) {
     vTaskDelete(NULL);
     return;
   }
+  g_vl53l1x_device_handle = &s_vl53l1x_device;
   OPENER_TRACE_INFO("VL53L1x device added successfully\n");
   
   /* Wait a bit for sensor to stabilize */

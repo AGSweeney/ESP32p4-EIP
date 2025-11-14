@@ -12,6 +12,9 @@ idf_component_register(
         driver
         freertos
         nvs_flash
+        webui
+        modbus_tcp
+        ota_manager
     PRIV_REQUIRES
         bmi270
         bno086

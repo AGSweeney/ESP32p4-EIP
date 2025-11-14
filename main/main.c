@@ -28,6 +28,9 @@
 #include "ciptcpipinterface.h"
 #include "sdkconfig.h"
 #include "esp_netif_net_stack.h"
+#include "webui.h"
+#include "modbus_tcp.h"
+#include "ota_manager.h"
 
 void SampleApplicationSetActiveNetif(struct netif *netif);
 void SampleApplicationNotifyLinkUp(void);
@@ -539,6 +542,25 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
         opener_init(netif_to_use);
         s_opener_initialized = true;
         SampleApplicationNotifyLinkUp();
+        
+        // Initialize OTA manager
+        if (!ota_manager_init()) {
+            ESP_LOGW(TAG, "Failed to initialize OTA manager");
+        }
+        
+        // Initialize and start Web UI
+        if (!webui_init()) {
+            ESP_LOGW(TAG, "Failed to initialize Web UI");
+        }
+        
+        // Initialize and start ModbusTCP server
+        if (!modbus_tcp_init()) {
+            ESP_LOGW(TAG, "Failed to initialize ModbusTCP");
+        } else {
+            if (!modbus_tcp_start()) {
+                ESP_LOGW(TAG, "Failed to start ModbusTCP server");
+            }
+        }
     } else {
         ESP_LOGE(TAG, "Failed to find netif");
     }

@@ -28,4 +28,6 @@ void vl53l1x_log_sensor_id(const vl53l1x_device_handle_t *device);
 void vl53l1x_log_ambient_light(const vl53l1x_device_handle_t *device);
 void vl53l1x_log_signal_rate(const vl53l1x_device_handle_t *device);
 
+bool vl53l1x_apply_config(vl53l1x_device_handle_t *device, const void *config);
+
 #endif
