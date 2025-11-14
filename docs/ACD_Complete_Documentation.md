@@ -20,7 +20,7 @@
 5. [Implementation Solution](#implementation-solution)
 6. [Code Changes](#code-changes)
 7. [Configuration Changes](#configuration-changes)
-8. [ODVA Compliance and Timing](#odva-compliance-and-timing)
+8. [ACD Timing Reference](#acd-timing-reference)
 9. [Testing Guide](#testing-guide)
 10. [Patch Application](#patch-application)
 11. [References](#references)
@@ -31,12 +31,12 @@
 
 ## Executive Summary
 
-This document provides comprehensive documentation of the Address Conflict Detection (ACD) implementation for static IP assignment in the ESP32-P4 OpENer EtherNet/IP project. The implementation ensures RFC 5227 compliance and ODVA recommendations for EtherNet/IP devices.
+This document provides comprehensive documentation of the Address Conflict Detection (ACD) implementation for static IP assignment in the ESP32-P4 OpENer EtherNet/IP project. The implementation ensures RFC 5227 compliance and offers configurable timings suitable for real-time EtherNet/IP adapters.
 
 ### Key Achievements
 
 - ✅ **RFC 5227 Compliant**: Static IP addresses are deferred until ACD confirms safety
-- ✅ **ODVA Optimized**: Custom ACD timings optimized for EtherNet/IP real-time requirements
+- ✅ **Configurable Timings**: ACD timings aligned with TI EtherNet/IP reference values but fully configurable
 - ✅ **Self-Conflict Fix**: Resolved issue where ESP32 detected its own ARP probes as conflicts
 - ✅ **Deferred Assignment**: IP assignment occurs only after ACD confirms address is safe
 - ✅ **Conflict Handling**: IP addresses are removed when conflicts are detected
@@ -48,7 +48,7 @@ This document provides comprehensive documentation of the Address Conflict Detec
 - **Files Created**: 1 new header file (`netif_pending_ip.h`)
 - **Configuration Changes**: Multiple `sdkconfig` optimizations
 - **Build Changes**: `CMakeLists.txt` updated for socket limits
-- **Total ACD Time**: Reduced from 7-10 seconds (RFC 5227 default) to 60-100 ms (ODVA optimized)
+- **Total ACD Time**: Reduced from 7-10 seconds (RFC 5227 default) to ~600-800 ms (TI reference timings)
 
 ---
 
@@ -113,18 +113,6 @@ RFC 5227 (IPv4 Address Conflict Detection) specifies:
 3. **Section 2.4 - Ongoing Detection**: After successfully claiming an address, a host MUST continue to monitor for conflicts and defend its address.
 
 4. **Section 2.4.1**: "If a conflict is detected, the host MUST immediately stop using the address."
-
-### ODVA Recommendations
-
-**ODVA Publication 28 - Recommended IP Addressing Methods for EtherNet/IP™ Devices**
-
-- Recommends Address Conflict Detection (ACD) for static IP assignment per RFC 5227
-- Devices should probe for conflicts before assigning static IP
-- If conflict detected, device must NOT use the address
-- Supports both DHCP and static IP; static IP preferred for deterministic behavior
-- ACD should run before IP assignment and continue monitoring after assignment
-
-**Direct Link**: [ODVA Document Library](https://www.odva.org/technology-standards/document-library/) (Search for "Pub 28" or "IP Addressing Methods")
 
 ### Compliance Status
 
@@ -227,7 +215,7 @@ Time T2-T3: ACD probes complete
 | **IP Assignment Timing** | After ACD confirms | Before ACD starts | **Before ACD starts** ⚠️ |
 | **ACD Implementation** | Port-specific (`acd_dhcp_check.c`) | Core (`acd.c`) | Core (`acd.c`) |
 | **Probe Count** | 2 probes | 3 probes | Configurable |
-| **Total ACD Duration** | ~1 second | ~6-9 seconds | **60-100 ms** (ODVA optimized) |
+| **Total ACD Duration** | ~1 second | ~6-9 seconds | **~600-800 ms** (TI reference) |
 | **State Machine** | Simple (PROBING only) | Full RFC 5227 | Full RFC 5227 |
 | **IP Removal on Conflict** | Yes (via `dhcp_decline()`) | No (manual) | **Yes** ✅ |
 
@@ -893,46 +881,37 @@ BaseType_t result = xTaskCreatePinnedToCore(opener_thread,
 
 \newpage
 
-## ODVA Compliance and Timing
+## ACD Timing Reference
 
-### ODVA Reference
+### Timing Configuration Overview
 
-**ODVA Publication 28 - Recommended IP Addressing Methods for EtherNet/IP™ Devices**
+This project implements **adjustable ACD timings** tailored for real-time EtherNet/IP adapters. The defaults align with the TI EtherNet/IP reference implementation, but every parameter remains configurable through Kconfig.
 
-- **Purpose**: Best practices for IP address configuration in EtherNet/IP devices
-- **Content**: Recommends Address Conflict Detection (ACD) for static IP assignment per RFC 5227
-- **Direct Link**: [ODVA Document Library](https://www.odva.org/technology-standards/document-library/) (Search for "Pub 28" or "IP Addressing Methods")
-- **Relevance**: ODVA recommends ACD for static IP assignment but emphasizes faster timing for real-time industrial applications
+#### Current Configuration (TI Reference)
 
-### ACD Timing Configuration
+The project now uses **ACD timings aligned with the TI EtherNet/IP adapter reference implementation** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`):
 
-This project implements **adjustable ACD timings** to comply with ODVA recommendations for EtherNet/IP devices. The timings are optimized for real-time industrial communication requirements.
-
-#### Current Configuration (ODVA-Optimized)
-
-The project uses **custom ACD timings optimized for EtherNet/IP** via Kconfig options (`OPENER_ACD_CUSTOM_TIMING`). These values are significantly faster than RFC 5227 defaults to meet EtherNet/IP's real-time requirements:
-
-| Parameter | RFC 5227 Default | **TI Library Reference** | **ODVA-Optimized (Current)** | Description |
+| Parameter | RFC 5227 Default | **TI Library Reference** | **TI-Aligned (Current)** | Description |
 |-----------|------------------|--------------------------|------------------------------|-------------|
-| **PROBE_WAIT** | 1000 ms | **200 ms** | **0 ms** | Initial delay before first probe (TI: fixed, no randomization) |
-| **PROBE_MIN** | 1000 ms | **200 ms** | **20 ms** | Minimum delay between probe packets |
-| **PROBE_MAX** | 2000 ms | **200 ms** | **20 ms** | Maximum delay between probe packets (TI: same as MIN for fixed timing) |
-| **PROBE_NUM** | 3 packets | **Not specified** | **1 packet** | Number of probe packets to send |
-| **ANNOUNCE_WAIT** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **20 ms** | Delay before first announcement (TI: standard 2000ms, Quick Connect 25ms) |
-| **ANNOUNCE_NUM** | 2 packets | **Not specified** | **1 packet** | Number of announcement packets |
-| **ANNOUNCE_INTERVAL** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **20 ms** | Time between announcement packets (TI: standard 2000ms, Quick Connect 25ms) |
-| **DEFEND_INTERVAL** | 10000 ms | **2000 ms** | **10000 ms** | Minimum interval between defensive ARPs |
+| **PROBE_WAIT** | 1000 ms | **200 ms** | **200 ms** | Initial delay before first probe (TI: fixed, no randomization) |
+| **PROBE_MIN** | 1000 ms | **200 ms** | **200 ms** | Minimum delay between probe packets |
+| **PROBE_MAX** | 2000 ms | **200 ms** | **200 ms** | Maximum delay between probe packets (TI: same as MIN for fixed timing) |
+| **PROBE_NUM** | 3 packets | **Not specified** | **3 packets** | Number of probe packets to send (matches RFC / TI sample) |
+| **ANNOUNCE_WAIT** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **2000 ms** | Delay before first announcement (standard mode) |
+| **ANNOUNCE_NUM** | 2 packets | **4 packets** | **4 packets** | Number of announcement packets |
+| **ANNOUNCE_INTERVAL** | 2000 ms | **2000 ms** (or 200ms or 25ms) | **2000 ms** | Time between announcement packets (standard mode) |
+| **DEFEND_INTERVAL** | 10000 ms | **2000 ms** | **10000 ms** | Minimum interval between defensive ARPs (RFC default retained) |
 | **Ongoing Probe Min** | N/A | **90000 ms (90s)** | N/A | Minimum interval for ongoing conflict detection probes |
 | **Ongoing Probe Max** | N/A | **150000 ms (150s)** | N/A | Maximum interval for ongoing conflict detection probes |
 | **Timer Tick Period** | 100 ms | **5 ms** | 100 ms | ACD timer tick period |
 
-**Total ACD time (ODVA-optimized)**: Approximately **60-100 ms** (vs. 7-10 seconds for RFC 5227 defaults, vs. ~600-800ms for TI library with 200ms timings)
+**Total ACD time (TI reference)**: Approximately **600-800 ms** (vs. 7-10 seconds for RFC 5227 defaults)
 
 #### Configuration Method
 
 ACD timings are configurable via ESP-IDF menuconfig:
 - Navigate to: `Component config > OpenER ACD Timing`
-- Enable `Override default RFC5227 timings` to use ODVA-optimized values
+- Enable `Override default RFC5227 timings` to use the custom profile
 - Adjust individual timing parameters as needed for your network environment
 
 **Kconfig Options** (`main/Kconfig.projbuild`):
@@ -1002,20 +981,20 @@ CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS=2000      # Match TI: 2000ms standard mode
 # Note: TI also supports Quick Connect mode with 25ms announcement interval
 ```
 
-**Current Project Values** (`sdkconfig.defaults` - EtherNet/IP optimized):
+**Current Project Values** (`sdkconfig.defaults` - TI-aligned):
 
 ```
 CONFIG_OPENER_ACD_CUSTOM_TIMING=y
-CONFIG_OPENER_ACD_PROBE_WAIT_MS=0
-CONFIG_OPENER_ACD_PROBE_MIN_MS=20
-CONFIG_OPENER_ACD_PROBE_MAX_MS=20
-CONFIG_OPENER_ACD_PROBE_NUM=1
-CONFIG_OPENER_ACD_ANNOUNCE_NUM=1
-CONFIG_OPENER_ACD_ANNOUNCE_INTERVAL_MS=20
-CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS=20
+CONFIG_OPENER_ACD_PROBE_WAIT_MS=200
+CONFIG_OPENER_ACD_PROBE_MIN_MS=200
+CONFIG_OPENER_ACD_PROBE_MAX_MS=200
+CONFIG_OPENER_ACD_PROBE_NUM=3
+CONFIG_OPENER_ACD_ANNOUNCE_NUM=4
+CONFIG_OPENER_ACD_ANNOUNCE_INTERVAL_MS=2000
+CONFIG_OPENER_ACD_ANNOUNCE_WAIT_MS=2000
 ```
 
-**Note**: The optimized timings balance conflict detection reliability with EtherNet/IP's real-time communication requirements. For networks with high latency or packet loss, you may need to increase these values. The TI library uses 200ms fixed probe timing (faster than RFC 5227 but slower than current optimized values).
+**Note**: These timings match the TI EtherNet/IP adapter defaults for standard-mode announcements. For faster startup the TI library also supports 200 ms and 25 ms announcement intervals; those can be enabled by lowering the `ANNOUNCE_WAIT_MS` / `ANNOUNCE_INTERVAL_MS` options if required. `DEFEND_INTERVAL` remains at the RFC default of 10 seconds; reducing it to 2 seconds will mirror the TI behavior if needed.
 
 ### TI Library ACD Timing Reference
 
@@ -1091,7 +1070,7 @@ The TI EtherNet/IP Adapter library uses the following ACD timing constants:
 
 #### Timing Summary Table
 
-| Timing Aspect | TI Library | ESP-IDF LWIP (RFC 5227) | ESP-IDF LWIP (ODVA Optimized) |
+| Timing Aspect | TI Library | ESP-IDF LWIP (RFC 5227) | ESP-IDF LWIP (Custom Profile) |
 |---------------|------------|-------------------------|-------------------------------|
 | **Initial Probe** | 200ms fixed | 1000-2000ms random | 0-20ms |
 | **Announcement** | 2000ms (or 200ms or 25ms) | 2000ms | 20ms |
@@ -1129,7 +1108,7 @@ Ensure the following are enabled in `sdkconfig`:
 - `CONFIG_LWIP_AUTOIP=y` (enables ACD support)
 - `CONFIG_LWIP_DHCP_DOES_ACD_CHECK=y` (for DHCP ACD checking)
 - `LWIP_ACD_RFC5227_COMPLIANT_STATIC=1` (default, enables RFC 5227 compliance)
-- `CONFIG_OPENER_ACD_CUSTOM_TIMING=y` (enables ODVA-optimized ACD timings)
+- `CONFIG_OPENER_ACD_CUSTOM_TIMING=y` (enables custom ACD timings)
 
 ---
 
@@ -1144,9 +1123,9 @@ Ensure the following are enabled in `sdkconfig`:
 4. Monitor serial output for ACD progress
 
 **Expected Behavior**:
-- ACD probe sequence runs (1 probe packet with ODVA timings)
+- ACD probe sequence runs (TI-aligned timing profile)
 - No conflicts detected
-- IP address is assigned after `ACD_IP_OK` callback (~60-100 ms)
+- IP address is assigned after `ACD_IP_OK` callback (~600-800 ms)
 - Device becomes operational with assigned IP
 
 **Expected Log Sequence**:
@@ -1408,10 +1387,10 @@ git checkout -- .
    - **Direct Link**: [https://tools.ietf.org/html/rfc5227](https://tools.ietf.org/html/rfc5227)
    - **Relevance**: **CRITICAL** - Directly relevant to our static IP ACD implementation
 
-2. **ODVA Publication 28 - Recommended IP Addressing Methods for EtherNet/IP™ Devices**
-   - **Purpose**: Best practices for IP address configuration in EtherNet/IP devices
-   - **Direct Link**: [ODVA Document Library](https://www.odva.org/technology-standards/document-library/) (Search for "Pub 28")
-   - **Relevance**: **CRITICAL** - ODVA recommendations for ACD in EtherNet/IP devices
+2. **TI EtherNet/IP Adapter Library – Address Conflict Detection**
+   - **Purpose**: Provides practical ACD timing values used by TI EtherNet/IP reference designs
+   - **Link**: TI Design Guide (e.g. application report SPRACM5 or TI EtherNet/IP Adapter SDK documentation)
+   - **Relevance**: Basis for the TI-aligned timing profile adopted in this project
 
 ### Project Documentation
 
@@ -1422,7 +1401,7 @@ git checkout -- .
 5. **RFC 5227 Requirements**: `dependency_modifications/Analysis_of_ACD_Issue/RFC5227_COMPLIANCE_REQUIREMENTS.md` - RFC 5227 requirements analysis
 6. **ACD Interface Analysis**: `dependency_modifications/Analysis_of_ACD_Issue/ACD_INTERFACE_BRINGUP_ANALYSIS.md` - Detailed process analysis
 7. **DHCP vs Static IP Comparison**: `dependency_modifications/Analysis_of_ACD_Issue/DHCP_VS_STATIC_IP_ACD_COMPARISON.md` - Comparison analysis
-8. **EtherNet/IP References**: `docs/EtherNetIP_References.md` - Comprehensive ODVA publication guide
+8. **EtherNet/IP References**: `docs/EtherNetIP_References.md` - Curated collection of EtherNet/IP technical resources
 
 ### Patch Files
 
@@ -1431,9 +1410,7 @@ git checkout -- .
 
 ### Additional Resources
 
-- **ODVA Website**: https://www.odva.org/
-- **ODVA Technology Standards**: https://www.odva.org/technology-standards/
-- **ODVA Document Library**: https://www.odva.org/technology-standards/document-library/
+- **TI EtherNet/IP Adapter SDK**: https://www.ti.com/tool/PROCESSOR-SDK-INDUSTRIAL-SITARA
 - **OpENer GitHub**: https://github.com/EIPStackGroup/OpENer
 
 ---
@@ -1475,7 +1452,7 @@ git checkout -- .
 #### New Features
 
 - ✅ RFC 5227 compliant static IP assignment
-- ✅ Configurable ACD timings (ODVA optimized)
+- ✅ Configurable ACD timings (TI-aligned baseline)
 - ✅ Task affinity control (Core 0)
 - ✅ IRAM optimization enabled
 - ✅ Self-conflict detection fix

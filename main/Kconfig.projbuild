@@ -38,18 +38,18 @@ menu "OpenER ACD Timing"
 
     if OPENER_ACD_CUSTOM_TIMING
         config OPENER_ACD_PROBE_WAIT_MS
-            int "Initial random probe wait (ms)"
-            default 1000
+            int "Initial probe wait (ms)"
+            default 200
             help
                 Maximum initial delay before the first probe is sent. Set to 0 for no delay.
 
         config OPENER_ACD_PROBE_MIN_MS
             int "Minimum delay between probes (ms)"
-            default 1000
+            default 200
 
         config OPENER_ACD_PROBE_MAX_MS
             int "Maximum delay between probes (ms)"
-            default 2000
+            default 200
 
         config OPENER_ACD_PROBE_NUM
             int "Number of probes"
@@ -57,7 +57,7 @@ menu "OpenER ACD Timing"
 
         config OPENER_ACD_ANNOUNCE_NUM
             int "Number of announcements"
-            default 2
+            default 4
 
         config OPENER_ACD_ANNOUNCE_INTERVAL_MS
             int "Interval between announcements (ms)"
