@@ -17,6 +17,9 @@ without the PoE module) and include:
 - Builds produced with ESP-IDF v5.5 toolchain.
 - Sensor I²C defaults wired for the WaveShare board: SDA **GPIO 7**, SCL
   **GPIO 8** (configurable via Kconfig).
+- Graceful VL53L1X fallback: if the sensor is not detected during boot, the
+  task logs the failure, stops updating Input Assembly 100, and leaves the rest
+  of the EtherNet/IP stack running.
 
 ## Files
 
@@ -73,6 +76,8 @@ without the PoE module) and include:
 - Verify DHCP/static IP configuration via CIP (TCP/IP Interface object
   attributes) or serial log.
 - Check VL53L1X sensor output in Input Assembly 100 via EtherNet/IP client.
+  If all bytes remain zero and the console shows `VL53L1x initialization
+  failed`, inspect sensor power/I²C wiring and reboot once corrected.
 - Toggle Output Assembly 150 bit 0 to drive the status LED on GPIO33.
 
 For development builds, rebuild via `idf.py build` and copy the resulting

@@ -56,6 +56,13 @@ The VL53L1X ToF sensor is integrated into the EtherNet/IP input assembly, provid
 - **Distance Mode**: Long range (up to 4 meters)
 - **Task Core**: Core 1 (OpENer and lwIP run on Core 0)
 
+### Startup Behaviour When the Sensor Is Missing
+
+- If the VL53L1X probe sequence fails (for example, the sensor is absent or wired incorrectly), the ToF task logs `VL53L1x initialization failed`, cleans up, and exits.
+- Input Assembly 100 bytes 0-8 remain at zero because no measurements are produced after the task stops.
+- All other EtherNet/IP functionality—TCP/IP, assemblies, Connection Manager diagnostics, and GPIO33 LED control—continues to operate normally.
+- Restoring sensor functionality requires fixing the hardware issue and rebooting so the initialization task can run again.
+
 ### Input Assembly Byte Layout
 
 Sensor data is written to bytes 0-8 of Input Assembly 100 (`g_assembly_data064`) in little-endian format:
