@@ -4,6 +4,7 @@
 - Port of the OpENer EtherNet/IP™ stack to Espressif’s ESP32-P4 using ESP-IDF v5.5
 - Runs the canonical sample application with cyclic I/O assemblies and class 1/3 messaging support
 - Integrates with `esp_netif` and the ESP32 Ethernet MAC/PHY driver for link management and address assignment
+- Implements static-IP Address Conflict Detection (ACD) for EtherNet/IP adapters while keeping DHCP compatibility
 
 ## Peripheral Component Libraries
 - **BMI270 – 6-axis IMU**  
@@ -93,7 +94,7 @@ PROGRAM VL53L1x_Sensor_Data
 VAR
     ESP32p4_I : ARRAY[0..31] OF SINT;
     Distance_mm : UINT;
-    Status : SINT;
+    Status : UINT;
     Ambient_kcps : UINT;
     SigPerSPAD_kcps : UINT;
     NumSPADs : UINT;
@@ -107,7 +108,8 @@ ByteHigh := ANY_TO_BYTE(ESP32p4_I[1]);
 Distance_mm := ANY_TO_UINT(ByteLow) + ((ANY_TO_UINT(ByteHigh) * 256));
 
 // Extract Status (byte 2)
-Status := ESP32p4_I[2];
+ByteLow := ANY_TO_BYTE(ESP32p4_I[2]);
+Status := ANY_TO_UINT(ByteLow);
 
 // Convert Ambient (bytes 3-4, little-endian)
 ByteLow := ANY_TO_BYTE(ESP32p4_I[3]);
@@ -146,7 +148,7 @@ For detailed sensor API documentation, see [components/vl53l1x_uld/README.md](co
 - **Class 0xF6 – Ethernet Link**  
   Negotiated speed/duplex reporting, physical MAC address, interface and media counters, interface type/state, and optional admin control.
 - **Class 0x06 – Connection Manager**  
-  Enables class 1 cyclic I/O and class 3 explicit messaging channels.
+  Enables class 1 cyclic I/O and class 3 explicit messaging channels. Attribute 11 (CPU Utilization) is intentionally fixed at `0` on this platform because FreeRTOS statistics fluctuate too much for a reliable percentage. Buffer attributes 12/13 report the static 4096‑byte defaults used by OpENer.
 - **Class 0x04 – Assemblies**  
   Input (`100`), output (`150`), and configuration (`151`) data sets for the sample application.
 - **Class 0x48 – Quality of Service**  

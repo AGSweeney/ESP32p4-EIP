@@ -30,6 +30,12 @@
 #include "cipqos.h"
 #include "xorshiftrandom.h"
 
+#if defined(__ESP_PLATFORM__) || defined(ESP_PLATFORM)
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#define OPENER_ESP32_PORT 1
+#endif
+
 const size_t g_kForwardOpenHeaderLength = 36; /**< the length in bytes of the forward open command specific data till the start of the connection path (including con path size)*/
 const size_t g_kLargeForwardOpenHeaderLength = 40; /**< the length in bytes of the large forward open command specific data till the start of the connection path (including con path size)*/
 
@@ -54,6 +60,31 @@ CipConnectionObject g_dummy_connection_object;
 
 /** @brief Holds the connection ID's "incarnation ID" in the upper 16 bits */
 EipUint32 g_incarnation_id;
+
+/** @brief Connection Manager instance statistics */
+typedef struct {
+  CipUint open_requests;              /* Attribute 1 */
+  CipUint open_format_rejects;        /* Attribute 2 */
+  CipUint open_resource_rejects;      /* Attribute 3 */
+  CipUint open_other_rejects;         /* Attribute 4 */
+  CipUint close_requests;             /* Attribute 5 */
+  CipUint close_format_requests;       /* Attribute 6 */
+  CipUint close_other_requests;       /* Attribute 7 */
+  CipUint connection_timeouts;        /* Attribute 8 */
+  CipUint cpu_utilization;            /* Attribute 11 (0-100, percentage) */
+  CipUint max_buff_size;              /* Attribute 12 */
+  CipUint buff_size_remaining;       /* Attribute 13 */
+} ConnectionManagerStatistics;
+
+static ConnectionManagerStatistics g_connection_manager_stats = {0};
+
+/* Dummy data pointer for attribute 9 (Connection Entry List) - dynamically encoded, not used */
+static CipUint g_connection_entry_list_dummy = 0;
+
+#ifdef OPENER_ESP32_PORT
+/* CPU utilization reporting disabled; always report 0%. */
+void vApplicationIdleHook(void) { }
+#endif
 
 /* private functions */
 EipStatus ForwardOpen(CipInstance *instance,
@@ -201,6 +232,78 @@ CipUdint GetConnectionId(void) {
   return (g_incarnation_id | (connection_id & 0x0000FFFF) );
 }
 
+/** @brief Encode Connection Entry List (Attribute 9)
+ *
+ * Encodes the list of active connections as a structure containing:
+ * - UINT num_conn_entries: Number of connection entries
+ * - Array of bits: conn_open_bits indicating which connections are open
+ */
+static void EncodeConnectionEntryList(const void *const data,
+                                      ENIPMessage *const outgoing_message) {
+  (void)data; /* Suppress unused parameter warning */
+  
+  /* Count active connections - include all connections in the list
+   * Both explicit (Class 3) and I/O connections should be in connection_list */
+  CipUint num_entries = 0;
+  CipUint total_connections = 0;
+  DoublyLinkedListNode *node = connection_list.first;
+  while (node != NULL) {
+    CipConnectionObject *conn = node->data;
+    if (conn != NULL) {
+      total_connections++;
+      ConnectionObjectState state = ConnectionObjectGetState(conn);
+      ConnectionObjectInstanceType inst_type = ConnectionObjectGetInstanceType(conn);
+      /* Count connections that are Established (both explicit and I/O should be Established when active) */
+      if (state == kConnectionObjectStateEstablished) {
+        num_entries++;
+        OPENER_TRACE_INFO("Connection Entry List: Found Established connection, type=%d, state=%d\n", 
+                          (int)inst_type, (int)state);
+      } else {
+        OPENER_TRACE_INFO("Connection Entry List: Found non-Established connection, type=%d, state=%d\n", 
+                          (int)inst_type, (int)state);
+      }
+    }
+    node = node->next;
+  }
+  OPENER_TRACE_INFO("Connection Entry List: Total connections=%d, Established=%d\n", 
+                    (int)total_connections, (int)num_entries);
+  
+  /* Encode: UINT num_conn_entries */
+  AddIntToMessage(num_entries, outgoing_message);
+  
+  if (num_entries > 0) {
+    /* Calculate bytes needed for bit array (round up) */
+    CipUint bits_bytes = (num_entries + 7) / 8;
+    CipOctet *bits = (CipOctet *)outgoing_message->current_message_position;
+    
+    /* Clear bits array */
+    memset(bits, 0, bits_bytes);
+    
+    /* Set bits for active connections */
+    CipUint bit_index = 0;
+    node = connection_list.first;
+    while (node != NULL) {
+      CipConnectionObject *conn = node->data;
+      if (conn != NULL) {
+        ConnectionObjectState state = ConnectionObjectGetState(conn);
+        /* Set bit for Established connections (both explicit and I/O) */
+        if (state == kConnectionObjectStateEstablished) {
+          bits[bit_index / 8] |= (1 << (bit_index % 8));
+          bit_index++;
+        }
+      }
+      node = node->next;
+    }
+    
+    /* Move message pointer past the bits array */
+    outgoing_message->current_message_position += bits_bytes;
+    outgoing_message->used_message_length += bits_bytes;
+  }
+  
+  /* Ensure message length is updated (AddIntToMessage already updated it, but be explicit) */
+  /* No additional update needed - AddIntToMessage handles the UINT, and we handle the bits array above */
+}
+
 void InitializeConnectionManager(CipClass *class) {
 
   CipClass *meta_class = class->class_instance.cip_class;
@@ -222,6 +325,47 @@ void InitializeConnectionManager(CipClass *class) {
                    (void *) &class->highest_attribute_number,
                    kGetableSingleAndAll ); /* max instance attribute number*/
 
+  /* Instance attributes (1-14) - Get the actual instance, not the class instance */
+  CipInstance *instance = GetCipInstance(class, 1);
+  OPENER_ASSERT(NULL != instance);
+  
+  InsertAttribute(instance, 1, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.open_requests,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 2, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.open_format_rejects,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 3, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.open_resource_rejects,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 4, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.open_other_rejects,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 5, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.close_requests,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 6, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.close_format_requests,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 7, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.close_other_requests,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 8, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.connection_timeouts,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 9, kCipAny, (CipAttributeEncodeInMessage)EncodeConnectionEntryList, NULL,
+                  (void *)&g_connection_entry_list_dummy, kGetableSingleAndAll);
+  /* Attribute 10 not defined in spec */
+  InsertAttribute(instance, 11, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.cpu_utilization,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 12, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.max_buff_size,
+                  kGetableSingleAndAll);
+  InsertAttribute(instance, 13, kCipUint, EncodeCipUint, NULL,
+                  (void *)&g_connection_manager_stats.buff_size_remaining,
+                  kGetableSingleAndAll);
+
   InsertService(meta_class,
                 kGetAttributeAll,
                 &GetAttributeAll,
@@ -240,7 +384,7 @@ EipStatus ConnectionManagerInit(EipUint16 unique_connection_id) {
                                                 0, /* # of class attributes */
                                                 7, /* # highest class attribute number*/
                                                 2, /* # of class services */
-                                                0, /* # of instance attributes */
+                                                13, /* # of instance attributes */
                                                 14, /* # highest instance attribute number*/
                                                 8, /* # of instance services */
                                                 1, /* # of instances */
@@ -499,6 +643,19 @@ EipStatus HandleNonNullNonMatchingForwardOpenRequest(
 
   if(kEipStatusOk != temp) {
     OPENER_TRACE_INFO("connection manager: connect failed\n");
+    
+    /* Increment reject counters based on error type */
+    if (connection_status == kConnectionManagerExtendedStatusCodeErrorInvalidSegmentTypeInPath) {
+      g_connection_manager_stats.open_format_rejects++;
+    } else if (connection_status == kConnectionManagerExtendedStatusCodeErrorConnectionInUseOrDuplicateForwardOpen ||
+               connection_status == kConnectionManagerExtendedStatusCodeErrorOwnershipConflict ||
+               connection_status == kConnectionManagerExtendedStatusCodeTargetObjectOutOfConnections ||
+               connection_status == kConnectionManagerExtendedStatusCodeErrorOwnershipConflict) {
+      g_connection_manager_stats.open_resource_rejects++;
+    } else {
+      g_connection_manager_stats.open_other_rejects++;
+    }
+    
     /* in case of error the dummy objects holds all necessary information */
     return AssembleForwardOpenResponse(&g_dummy_connection_object,
                                        message_router_response,
@@ -506,6 +663,7 @@ EipStatus HandleNonNullNonMatchingForwardOpenRequest(
                                        connection_status);
   } else {
     OPENER_TRACE_INFO("connection manager: connect succeeded\n");
+    g_connection_manager_stats.open_requests++;  /* Successful open */
     /* in case of success the new connection is added at the head of the connection list */
     return AssembleForwardOpenResponse(connection_list.first->data,
                                        message_router_response,
@@ -714,8 +872,10 @@ EipStatus ForwardClose(CipInstance *instance,
             connection_object->originator_address.sin_addr.s_addr ) {
           connection_object->connection_close_function(connection_object);
           connection_status = kConnectionManagerExtendedStatusCodeSuccess;
+          g_connection_manager_stats.close_requests++;  /* Successful close */
         } else {
           connection_status = kConnectionManagerExtendedStatusWrongCloser;
+          g_connection_manager_stats.close_format_requests++;  /* Format error */
         }
         break;
       }
@@ -729,6 +889,7 @@ EipStatus ForwardClose(CipInstance *instance,
       connection_serial_number,
       originator_vendor_id,
       originator_serial_number);
+    g_connection_manager_stats.close_other_requests++;  /* Connection not found */
   }
 
   return AssembleForwardCloseResponse(connection_serial_number,
@@ -954,6 +1115,7 @@ EipStatus ManageConnections(MilliSeconds elapsed_time) {
           /* we have a timed out connection perform watchdog time out action*/
           OPENER_TRACE_INFO(">>>>>>>>>>Connection ConnNr: %u timed out\n",
                             connection_object->connection_serial_number);
+          g_connection_manager_stats.connection_timeouts++;  /* Increment timeout counter */
           OPENER_ASSERT(NULL != connection_object->connection_timeout_function);
           connection_object->connection_timeout_function(connection_object);
         } else {
@@ -1827,4 +1989,12 @@ void InitializeConnectionManagerData() {
          g_kNumberOfConnectableObjects * sizeof(ConnectionManagementHandling) );
   InitializeClass3ConnectionData();
   InitializeIoConnectionData();
+  
+  /* Initialize buffer sizes */
+  /* Estimate based on typical EtherNet/IP buffer requirements */
+  g_connection_manager_stats.max_buff_size = 4096;  /* 4KB typical buffer size */
+  g_connection_manager_stats.buff_size_remaining = 4096;
+  g_connection_manager_stats.cpu_utilization = 0;
+  
+  /* CPU utilization reporting disabled; attribute remains 0 */
 }

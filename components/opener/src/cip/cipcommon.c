@@ -1081,7 +1081,6 @@ EipStatus GetAttributeAll(CipInstance *instance,
   (void)encapsulation_session;
 
   InitializeENIPMessage(&message_router_response->message);
-  CipAttributeStruct *attribute = instance->attributes; /* pointer to list of attributes*/
 
   //Missing header
 
@@ -1095,18 +1094,21 @@ EipStatus GetAttributeAll(CipInstance *instance,
     GenerateGetAttributeSingleHeader(message_router_request,
                                      message_router_response);
     message_router_response->general_status = kCipErrorSuccess;
-    for(size_t j = 0; j < instance->cip_class->number_of_attributes; j++) {
-      /* for each instance attribute of this class */
-      EipUint16 attribute_number = attribute->attribute_number;
-      if( (instance->cip_class->get_all_bit_mask[CalculateIndex(attribute_number)
-           ]) & ( 1 << (attribute_number % 8) ) ) {
-        /* only return attributes that are flagged as being part of GetAttributeAll */
-        message_router_request->request_path.attribute_number =
-          attribute_number;
+    /* Iterate through attributes by attribute number (1 to highest_attribute_number)
+     * rather than by array index, to handle missing attributes correctly */
+    for(EipUint16 attr_num = 1; attr_num <= instance->cip_class->highest_attribute_number; attr_num++) {
+      /* Check if this attribute is flagged for GetAttributeAll */
+      if( (instance->cip_class->get_all_bit_mask[CalculateIndex(attr_num)
+           ]) & ( 1 << (attr_num % 8) ) ) {
+        /* Find the attribute by number */
+        CipAttributeStruct *attribute = GetCipAttribute(instance, attr_num);
+        if(attribute != NULL && attribute->data != NULL) {
+          /* only return attributes that are flagged as being part of GetAttributeAll */
+          message_router_request->request_path.attribute_number = attr_num;
 
-        attribute->encode(attribute->data, &message_router_response->message);
+          attribute->encode(attribute->data, &message_router_response->message);
+        }
       }
-      attribute++;
     }
   }
   return kEipStatusOkSend;
