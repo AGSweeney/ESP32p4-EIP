@@ -50,7 +50,8 @@ static void send_exception(int client_socket, uint16_t transaction_id, uint8_t u
 static bool handle_read_holding_registers(int client_socket, uint16_t transaction_id, 
                                          uint8_t unit_id, const uint8_t *pdu, int pdu_len)
 {
-    if (pdu_len < 5) {
+    // Read Holding Registers requires: start_addr (2 bytes) + quantity (2 bytes) = 4 bytes
+    if (pdu_len < 4) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_HOLDING_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
@@ -59,14 +60,23 @@ static bool handle_read_holding_registers(int client_socket, uint16_t transactio
     uint16_t start_addr = (pdu[0] << 8) | pdu[1];
     uint16_t quantity = (pdu[2] << 8) | pdu[3];
     
+    // Validate quantity (Modbus spec: 1-125 registers)
     if (quantity == 0 || quantity > 125) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_HOLDING_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
     }
     
+    // Check response buffer size
+    size_t response_data_size = quantity * 2;
+    if (response_data_size > 250) { // Max 125 registers * 2 bytes = 250 bytes
+        send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_HOLDING_REGISTERS, 
+                      MODBUS_EX_ILLEGAL_DATA_VALUE);
+        return true;
+    }
+    
     uint8_t response[256];
-    int response_len = 9 + quantity * 2;
+    int response_len = 9 + response_data_size;
     response[0] = (transaction_id >> 8) & 0xFF;
     response[1] = transaction_id & 0xFF;
     response[2] = 0x00; // Protocol ID
@@ -75,24 +85,29 @@ static bool handle_read_holding_registers(int client_socket, uint16_t transactio
     response[5] = (response_len - 6) & 0xFF;
     response[6] = unit_id;
     response[7] = MODBUS_FC_READ_HOLDING_REGISTERS;
-    response[8] = quantity * 2; // Byte count
+    response[8] = response_data_size; // Byte count
     
     // Read registers from map
     if (!modbus_read_holding_registers(start_addr, quantity, &response[9])) {
+        ESP_LOGE(TAG, "Failed to read holding registers: start_addr=%d, quantity=%d", 
+                 start_addr, quantity);
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_HOLDING_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_ADDRESS);
         return true;
     }
     
-    send(client_socket, response, response_len, 0);
+    int sent = send(client_socket, response, response_len, 0);
+    if (sent != response_len) {
+        ESP_LOGE(TAG, "Failed to send full response: sent %d of %d bytes", sent, response_len);
+    }
     return true;
 }
 
 static bool handle_read_input_registers(int client_socket, uint16_t transaction_id, 
                                         uint8_t unit_id, const uint8_t *pdu, int pdu_len)
 {
-    if (pdu_len < 5) {
-        ESP_LOGW(TAG, "Read input registers: PDU too short (%d bytes)", pdu_len);
+    // Read Input Registers requires: start_addr (2 bytes) + quantity (2 bytes) = 4 bytes
+    if (pdu_len < 4) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_INPUT_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
@@ -101,18 +116,23 @@ static bool handle_read_input_registers(int client_socket, uint16_t transaction_
     uint16_t start_addr = (pdu[0] << 8) | pdu[1];
     uint16_t quantity = (pdu[2] << 8) | pdu[3];
     
-    ESP_LOGI(TAG, "Read input registers request: start_addr=%d, quantity=%d, unit_id=%d", 
-             start_addr, quantity, unit_id);
-    
+    // Validate quantity (Modbus spec: 1-125 registers)
     if (quantity == 0 || quantity > 125) {
-        ESP_LOGW(TAG, "Invalid quantity: %d", quantity);
+        send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_INPUT_REGISTERS, 
+                      MODBUS_EX_ILLEGAL_DATA_VALUE);
+        return true;
+    }
+    
+    // Check response buffer size
+    size_t response_data_size = quantity * 2;
+    if (response_data_size > 250) { // Max 125 registers * 2 bytes = 250 bytes
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_READ_INPUT_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
     }
     
     uint8_t response[256];
-    int response_len = 9 + quantity * 2;
+    int response_len = 9 + response_data_size;
     response[0] = (transaction_id >> 8) & 0xFF;
     response[1] = transaction_id & 0xFF;
     response[2] = 0x00; // Protocol ID
@@ -121,7 +141,7 @@ static bool handle_read_input_registers(int client_socket, uint16_t transaction_
     response[5] = (response_len - 6) & 0xFF;
     response[6] = unit_id;
     response[7] = MODBUS_FC_READ_INPUT_REGISTERS;
-    response[8] = quantity * 2; // Byte count
+    response[8] = response_data_size; // Byte count
     
     // Read registers from map
     if (!modbus_read_input_registers(start_addr, quantity, &response[9])) {
@@ -134,9 +154,7 @@ static bool handle_read_input_registers(int client_socket, uint16_t transaction_
     
     int sent = send(client_socket, response, response_len, 0);
     if (sent != response_len) {
-        ESP_LOGW(TAG, "Failed to send full response: sent %d of %d bytes", sent, response_len);
-    } else {
-        ESP_LOGI(TAG, "Successfully sent input registers response: %d registers", quantity);
+        ESP_LOGE(TAG, "Failed to send full response: sent %d of %d bytes", sent, response_len);
     }
     return true;
 }
@@ -144,7 +162,8 @@ static bool handle_read_input_registers(int client_socket, uint16_t transaction_
 static bool handle_write_single_register(int client_socket, uint16_t transaction_id, 
                                          uint8_t unit_id, const uint8_t *pdu, int pdu_len)
 {
-    if (pdu_len < 5) {
+    // Write Single Register requires: address (2 bytes) + value (2 bytes) = 4 bytes
+    if (pdu_len < 4) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_WRITE_SINGLE_REGISTER, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
@@ -155,6 +174,7 @@ static bool handle_write_single_register(int client_socket, uint16_t transaction
     
     // Write register to map
     if (!modbus_write_holding_register(address, value)) {
+        ESP_LOGE(TAG, "Failed to write holding register: address=%d, value=%d", address, value);
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_WRITE_SINGLE_REGISTER, 
                       MODBUS_EX_ILLEGAL_DATA_ADDRESS);
         return true;
@@ -175,13 +195,17 @@ static bool handle_write_single_register(int client_socket, uint16_t transaction
     response[10] = (value >> 8) & 0xFF;
     response[11] = value & 0xFF;
     
-    send(client_socket, response, sizeof(response), 0);
+    int sent = send(client_socket, response, sizeof(response), 0);
+    if (sent != sizeof(response)) {
+        ESP_LOGE(TAG, "Failed to send write response: sent %d of %d bytes", sent, sizeof(response));
+    }
     return true;
 }
 
 static bool handle_write_multiple_registers(int client_socket, uint16_t transaction_id, 
                                            uint8_t unit_id, const uint8_t *pdu, int pdu_len)
 {
+    // Write Multiple Registers requires: start_addr (2) + quantity (2) + byte_count (1) + data (N) = at least 6 bytes
     if (pdu_len < 6) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_WRITE_MULTIPLE_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
@@ -192,7 +216,8 @@ static bool handle_write_multiple_registers(int client_socket, uint16_t transact
     uint16_t quantity = (pdu[2] << 8) | pdu[3];
     uint8_t byte_count = pdu[4];
     
-    if (quantity == 0 || quantity > 123 || byte_count != quantity * 2 || pdu_len < 6 + byte_count) {
+    // Validate parameters
+    if (quantity == 0 || quantity > 123 || byte_count != quantity * 2 || pdu_len < 5 + byte_count) {
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_WRITE_MULTIPLE_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_VALUE);
         return true;
@@ -200,6 +225,7 @@ static bool handle_write_multiple_registers(int client_socket, uint16_t transact
     
     // Write registers to map
     if (!modbus_write_holding_registers(start_addr, quantity, &pdu[5])) {
+        ESP_LOGE(TAG, "Failed to write holding registers: start_addr=%d, quantity=%d", start_addr, quantity);
         send_exception(client_socket, transaction_id, unit_id, MODBUS_FC_WRITE_MULTIPLE_REGISTERS, 
                       MODBUS_EX_ILLEGAL_DATA_ADDRESS);
         return true;
@@ -220,7 +246,10 @@ static bool handle_write_multiple_registers(int client_socket, uint16_t transact
     response[10] = (quantity >> 8) & 0xFF;
     response[11] = quantity & 0xFF;
     
-    send(client_socket, response, sizeof(response), 0);
+    int sent = send(client_socket, response, sizeof(response), 0);
+    if (sent != sizeof(response)) {
+        ESP_LOGE(TAG, "Failed to send write response: sent %d of %d bytes", sent, sizeof(response));
+    }
     return true;
 }
 
@@ -233,15 +262,12 @@ bool modbus_tcp_handle_request(int client_socket)
     
     if (received <= 0) {
         if (received == 0 || errno == ECONNRESET) {
-            ESP_LOGD(TAG, "Connection closed by client");
             return false; // Connection closed
         }
-        ESP_LOGD(TAG, "Recv error: %s, retrying", strerror(errno));
         return true; // Try again
     }
     
     if (received < 6) {
-        ESP_LOGD(TAG, "Partial MBAP header received: %d bytes", received);
         return true; // Wait for more data
     }
     
@@ -249,34 +275,43 @@ bool modbus_tcp_handle_request(int client_socket)
     uint16_t protocol_id = (mbap_header[2] << 8) | mbap_header[3];
     uint16_t length = (mbap_header[4] << 8) | mbap_header[5];
     
-    ESP_LOGD(TAG, "MBAP: transaction_id=%d, protocol_id=%d, length=%d", 
-             transaction_id, protocol_id, length);
-    
-    if (protocol_id != 0) {
-        ESP_LOGW(TAG, "Invalid protocol ID: %d (expected 0)", protocol_id);
-        return false;
-    }
-    
-    if (length < 2 || length > 253) {
-        ESP_LOGW(TAG, "Invalid length: %d (must be 2-253)", length);
+    if (protocol_id != 0 || length < 2 || length > 253) {
         return false;
     }
     
     // Read PDU (unit_id + function_code + data)
+    // MBAP length field includes unit_id byte, so PDU is length bytes total
     uint8_t pdu[256];
-    received = recv(client_socket, pdu, length, 0);
-    if (received != length) {
-        ESP_LOGW(TAG, "Failed to read full PDU: received %d of %d bytes", received, length);
+    if (length > sizeof(pdu)) {
+        return false;
+    }
+    
+    // Read the full PDU - may need multiple recv calls for large PDUs
+    size_t total_received = 0;
+    while (total_received < length) {
+        received = recv(client_socket, pdu + total_received, length - total_received, 0);
+        if (received <= 0) {
+            if (received == 0 || errno == ECONNRESET) {
+                return false;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Would block, try again
+                continue;
+            }
+            ESP_LOGE(TAG, "Error reading PDU: %s", strerror(errno));
+            return false;
+        }
+        total_received += received;
+    }
+    
+    if (total_received != length || length < 2) {
         return false;
     }
     
     uint8_t unit_id = pdu[0];
     uint8_t function_code = pdu[1];
     const uint8_t *pdu_data = &pdu[2];
-    int pdu_data_len = length - 2;
-    
-    ESP_LOGI(TAG, "Modbus request: unit_id=%d, function_code=0x%02X, pdu_len=%d", 
-             unit_id, function_code, pdu_data_len);
+    int pdu_data_len = length - 2; // Data portion after unit_id and function_code
     
     bool result = true;
     switch (function_code) {
@@ -293,7 +328,6 @@ bool modbus_tcp_handle_request(int client_socket)
             result = handle_write_multiple_registers(client_socket, transaction_id, unit_id, pdu_data, pdu_data_len);
             break;
         default:
-            ESP_LOGW(TAG, "Unsupported function code: 0x%02X", function_code);
             send_exception(client_socket, transaction_id, unit_id, function_code, MODBUS_EX_ILLEGAL_FUNCTION);
             result = true;
             break;

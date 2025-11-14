@@ -67,8 +67,7 @@ static void modbus_tcp_server_task(void *pvParameters)
         if (FD_ISSET(s_listen_socket, &read_fds)) {
             int new_socket = accept(s_listen_socket, (struct sockaddr *)&client_addr, &client_addr_len);
             if (new_socket >= 0) {
-                ESP_LOGI(TAG, "New ModbusTCP connection from %s:%d",
-                         inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                // New ModbusTCP connection
                 
                 // Find empty slot
                 bool added = false;
@@ -81,7 +80,7 @@ static void modbus_tcp_server_task(void *pvParameters)
                 }
                 
                 if (!added) {
-                    ESP_LOGW(TAG, "Max connections reached, closing new connection");
+                    ESP_LOGE(TAG, "Max connections reached, closing new connection");
                     close(new_socket);
                 }
             }
@@ -92,7 +91,7 @@ static void modbus_tcp_server_task(void *pvParameters)
             if (client_sockets[i] >= 0 && FD_ISSET(client_sockets[i], &read_fds)) {
                 if (!modbus_tcp_handle_request(client_sockets[i])) {
                     // Connection closed or error
-                    ESP_LOGI(TAG, "Closing ModbusTCP connection %d", client_sockets[i]);
+                    // Closing ModbusTCP connection
                     close(client_sockets[i]);
                     client_sockets[i] = -1;
                 }
@@ -130,7 +129,7 @@ bool modbus_tcp_init(void)
     xSemaphoreTake(s_modbus_mutex, portMAX_DELAY);
     if (s_listen_socket >= 0) {
         xSemaphoreGive(s_modbus_mutex);
-        ESP_LOGW(TAG, "ModbusTCP already initialized");
+        ESP_LOGE(TAG, "ModbusTCP already initialized");
         return true;
     }
     
@@ -173,7 +172,7 @@ bool modbus_tcp_init(void)
     }
     
     xSemaphoreGive(s_modbus_mutex);
-    ESP_LOGI(TAG, "ModbusTCP server initialized on port %d", MODBUS_TCP_PORT);
+    // ModbusTCP server initialized
     return true;
 }
 
@@ -193,7 +192,7 @@ bool modbus_tcp_start(void)
     
     if (s_server_task_handle != NULL) {
         xSemaphoreGive(s_modbus_mutex);
-        ESP_LOGW(TAG, "ModbusTCP server already running");
+        ESP_LOGE(TAG, "ModbusTCP server already running");
         return true;
     }
     
@@ -207,7 +206,7 @@ bool modbus_tcp_start(void)
     }
     
     xSemaphoreGive(s_modbus_mutex);
-    ESP_LOGI(TAG, "ModbusTCP server started");
+    // ModbusTCP server started
     return true;
 }
 
@@ -235,6 +234,6 @@ void modbus_tcp_stop(void)
         xSemaphoreGive(s_modbus_mutex);
     }
     
-    ESP_LOGI(TAG, "ModbusTCP server stopped");
+    // ModbusTCP server stopped
 }
 

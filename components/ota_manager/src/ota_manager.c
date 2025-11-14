@@ -14,6 +14,7 @@ static const char *TAG = "ota_manager";
 static ota_status_info_t s_ota_status = {0};
 static SemaphoreHandle_t s_ota_mutex = NULL;
 static TaskHandle_t s_ota_task_handle = NULL;
+static const esp_partition_t *s_update_partition = NULL; // Store partition being updated
 
 static void ota_task(void *pvParameters)
 {
@@ -484,6 +485,9 @@ esp_ota_handle_t ota_manager_start_streaming_update(size_t expected_size)
     
     ESP_LOGI(TAG, "esp_ota_begin successful, handle: %d", ota_handle);
     
+    // Store the partition pointer for use in finish
+    s_update_partition = update_partition;
+    
     // Update status
     s_ota_status.status = OTA_STATUS_IN_PROGRESS;
     s_ota_status.progress = 0;
@@ -533,23 +537,30 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
         s_ota_status.status = OTA_STATUS_ERROR;
         snprintf(s_ota_status.message, sizeof(s_ota_status.message), "OTA end failed: %s", esp_err_to_name(err));
         s_ota_task_handle = NULL;
+        s_update_partition = NULL;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
     
-    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
-    if (update_partition == NULL) {
-        ESP_LOGE(TAG, "No OTA partition found");
+    // Use the partition we stored when starting the update
+    if (s_update_partition == NULL) {
+        ESP_LOGE(TAG, "Update partition not found - internal error");
+        xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
+        s_ota_status.status = OTA_STATUS_ERROR;
+        strcpy(s_ota_status.message, "Update partition not found");
+        s_ota_task_handle = NULL;
+        xSemaphoreGive(s_ota_mutex);
         return false;
     }
     
-    err = esp_ota_set_boot_partition(update_partition);
+    err = esp_ota_set_boot_partition(s_update_partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
         xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
         s_ota_status.status = OTA_STATUS_ERROR;
         snprintf(s_ota_status.message, sizeof(s_ota_status.message), "Set boot partition failed: %s", esp_err_to_name(err));
         s_ota_task_handle = NULL;
+        s_update_partition = NULL;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
@@ -560,6 +571,7 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
     s_ota_status.progress = 100;
     strcpy(s_ota_status.message, "Update complete, rebooting...");
     s_ota_task_handle = NULL;
+    s_update_partition = NULL; // Clear partition pointer
     xSemaphoreGive(s_ota_mutex);
     
     vTaskDelay(pdMS_TO_TICKS(2000));

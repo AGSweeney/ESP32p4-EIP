@@ -32,11 +32,6 @@ static void uint16_to_big_endian_bytes(uint16_t value, uint8_t *bytes)
     bytes[1] = value & 0xFF;
 }
 
-static uint16_t little_endian_to_big_endian(uint16_t le_value)
-{
-    return ((le_value & 0xFF) << 8) | ((le_value >> 8) & 0xFF);
-}
-
 static uint16_t big_endian_to_little_endian(uint16_t be_value)
 {
     return ((be_value & 0xFF) << 8) | ((be_value >> 8) & 0xFF);
@@ -61,7 +56,7 @@ bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t
 {
     // Check bounds: start_addr must be within range and quantity must not overflow
     if (start_addr > INPUT_REG_END || quantity == 0 || start_addr + quantity > INPUT_REG_END + 1) {
-        ESP_LOGW(TAG, "Invalid input register range: %d-%d", start_addr, start_addr + quantity - 1);
+        ESP_LOGE(TAG, "Invalid input register range: %d-%d", start_addr, start_addr + quantity - 1);
         return false;
     }
     
@@ -89,8 +84,6 @@ bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t
             data[i * 2] = high_byte;
             data[i * 2 + 1] = low_byte;
             
-            ESP_LOGD(TAG, "Input reg %d: assembly[%d]=0x%02X, assembly[%d]=0x%02X -> Modbus[%d]=0x%02X, Modbus[%d]=0x%02X",
-                     reg_addr, byte_offset, low_byte, byte_offset + 1, high_byte, i * 2, data[i * 2], i * 2 + 1, data[i * 2 + 1]);
         } else {
             // Out of range, return zero
             data[i * 2] = 0;
@@ -99,7 +92,6 @@ bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t
     }
     
     xSemaphoreGive(s_assembly_mutex);
-    ESP_LOGD(TAG, "Read %d input registers starting at %d", quantity, start_addr);
     return true;
 }
 
@@ -115,16 +107,25 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
         xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
         
         // Map Output Assembly 150 (32 bytes = 16 registers) to Modbus Holding Registers 100-115
+        // Assembly data is stored as little-endian bytes [low_byte, high_byte]
+        // Modbus requires big-endian bytes [high_byte, low_byte]
         uint16_t reg_offset = start_addr - HOLDING_REG_OUTPUT_START;
         for (uint16_t i = 0; i < quantity; i++) {
             uint16_t byte_offset = (reg_offset + i) * 2;
             
             if (byte_offset + 1 < sizeof(g_assembly_data096)) {
-                uint16_t le_value = g_assembly_data096[byte_offset] | (g_assembly_data096[byte_offset + 1] << 8);
-                uint16_t be_value = little_endian_to_big_endian(le_value);
-                uint16_to_big_endian_bytes(be_value, &data[i * 2]);
+                // Read little-endian from assembly: [low_byte, high_byte]
+                uint8_t low_byte = g_assembly_data096[byte_offset];
+                uint8_t high_byte = g_assembly_data096[byte_offset + 1];
+                
+                // Write as big-endian for Modbus: [high_byte, low_byte]
+                data[i * 2] = high_byte;
+                data[i * 2 + 1] = low_byte;
+                
             } else {
-                uint16_to_big_endian_bytes(0, &data[i * 2]);
+                // Out of range, return zero
+                data[i * 2] = 0;
+                data[i * 2 + 1] = 0;
             }
         }
         
@@ -142,16 +143,24 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
         xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
         
         // Map Config Assembly 151 (10 bytes = 5 registers) to Modbus Holding Registers 150-154
+        // Assembly data is stored as little-endian bytes [low_byte, high_byte]
+        // Modbus requires big-endian bytes [high_byte, low_byte]
         uint16_t reg_offset = start_addr - HOLDING_REG_CONFIG_START;
         for (uint16_t i = 0; i < quantity; i++) {
             uint16_t byte_offset = (reg_offset + i) * 2;
             
             if (byte_offset + 1 < sizeof(g_assembly_data097)) {
-                uint16_t le_value = g_assembly_data097[byte_offset] | (g_assembly_data097[byte_offset + 1] << 8);
-                uint16_t be_value = little_endian_to_big_endian(le_value);
-                uint16_to_big_endian_bytes(be_value, &data[i * 2]);
+                // Read little-endian from assembly: [low_byte, high_byte]
+                uint8_t low_byte = g_assembly_data097[byte_offset];
+                uint8_t high_byte = g_assembly_data097[byte_offset + 1];
+                
+                // Write as big-endian for Modbus: [high_byte, low_byte]
+                data[i * 2] = high_byte;
+                data[i * 2 + 1] = low_byte;
             } else {
-                uint16_to_big_endian_bytes(0, &data[i * 2]);
+                // Out of range, return zero
+                data[i * 2] = 0;
+                data[i * 2 + 1] = 0;
             }
         }
         
@@ -159,7 +168,7 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
         return true;
     }
     
-    ESP_LOGW(TAG, "Invalid holding register range: %d-%d", start_addr, start_addr + quantity - 1);
+        ESP_LOGE(TAG, "Invalid holding register range: %d-%d", start_addr, start_addr + quantity - 1);
     return false;
 }
 
@@ -226,7 +235,7 @@ bool modbus_write_holding_registers(uint16_t start_addr, uint16_t quantity, cons
         return true;
     }
     
-    ESP_LOGW(TAG, "Invalid holding register range for write: %d-%d", start_addr, start_addr + quantity - 1);
+    ESP_LOGE(TAG, "Invalid holding register range for write: %d-%d", start_addr, start_addr + quantity - 1);
     return false;
 }
 
