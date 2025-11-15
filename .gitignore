@@ -12,6 +12,9 @@ sdkconfig.old
 *.elf
 *.map
 
+# Exception: Track firmware images in FirmwareImages directory
+!FirmwareImages/*.bin
+
 # IDE
 .vscode/
 .idea/
