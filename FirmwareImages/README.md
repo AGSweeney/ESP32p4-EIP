@@ -14,6 +14,12 @@ without the PoE module) and include:
 - GPIO33 output assembly control (bit 0 of Output Assembly 150) for the status
   LED.
 - Configurable TCP/IP settings persisted in NVS via CIP attributes.
+- **Web Configuration Interface** (port 80) for sensor configuration, real-time
+  status monitoring, and firmware management.
+- **Modbus TCP Server** (port 502) providing access to EtherNet/IP assembly
+  data via standard Modbus protocol.
+- **OTA Firmware Update** capability via web interface for remote firmware
+  updates.
 - Builds produced with ESP-IDF v5.5 toolchain.
 - Sensor I²C defaults wired for the WaveShare board: SDA **GPIO 7**, SCL
   **GPIO 8** (configurable via Kconfig).
@@ -75,10 +81,57 @@ without the PoE module) and include:
 - Confirm Ethernet link comes up (logs show `ethernet_event: ETH_EVENT_LINK_UP`).
 - Verify DHCP/static IP configuration via CIP (TCP/IP Interface object
   attributes) or serial log.
+- **Access the Web Interface**: Open `http://<device-ip-address>` in a web
+  browser to configure the sensor, view real-time status, or perform firmware
+  updates.
 - Check VL53L1X sensor output in Input Assembly 100 via EtherNet/IP client.
   If all bytes remain zero and the console shows `VL53L1x initialization
   failed`, inspect sensor power/I²C wiring and reboot once corrected.
 - Toggle Output Assembly 150 bit 0 to drive the status LED on GPIO33.
+- **Test Modbus TCP**: Connect a Modbus client to port 502 to read sensor data
+  from Input Registers 0-15 or write to Holding Registers 100-115.
+
+## Web Configuration Interface
+
+The firmware includes a built-in web server accessible at `http://<device-ip-address>`
+(port 80) that provides:
+
+- **Configuration Page**: Configure all VL53L1X sensor parameters (distance mode,
+  timing budget, ROI settings, calibration values, thresholds, etc.) with
+  persistence to NVS.
+- **Status Page**: Real-time sensor readings with an interactive distance-over-time
+  chart.
+- **Firmware Update Page**: Upload new firmware images via the web browser for
+  over-the-air updates.
+
+All configuration changes are validated and immediately applied to the sensor.
+See the main [README.md](../README.md) for detailed documentation on the web
+interface and API endpoints.
+
+## Modbus TCP Access
+
+The firmware includes a Modbus TCP server on port 502 that provides access to
+EtherNet/IP assembly data:
+
+- **Input Registers 0-15**: Read-only access to Input Assembly 100 (sensor data)
+- **Holding Registers 100-115**: Read-write access to Output Assembly 150
+- **Holding Registers 150-154**: Read-write access to Configuration Assembly 151
+
+The implementation automatically handles endianness conversion between
+little-endian (EtherNet/IP) and big-endian (Modbus) formats. See the main
+[README.md](../README.md) for detailed register mapping and example code.
+
+## OTA Firmware Updates
+
+Firmware updates can be performed over-the-air via the web interface:
+
+1. Navigate to the Firmware Update page (`http://<device-ip-address>/ota`)
+2. Select a `.bin` firmware file (max 2 MB)
+3. Click "Start Update" to upload and install the new firmware
+4. The device automatically reboots into the new firmware after successful upload
+
+The device includes automatic rollback protection: if the new firmware fails
+validation after reboot, it automatically reverts to the previous working version.
 
 For development builds, rebuild via `idf.py build` and copy the resulting
 `build/ESP32-P4-OpENerEIP.bin` into this folder if distribution to other
