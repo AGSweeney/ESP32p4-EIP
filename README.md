@@ -145,6 +145,209 @@ END_PROGRAM
 
 For detailed sensor API documentation, see [components/vl53l1x_uld/README.md](components/vl53l1x_uld/README.md).
 
+## Web Configuration Interface
+
+The device includes a built-in web server (port 80) providing a user-friendly interface for sensor configuration, real-time status monitoring, and firmware management.
+
+### Accessing the Web Interface
+
+- **URL**: `http://<device-ip-address>` (e.g., `http://192.168.1.100`)
+- **Port**: 80 (HTTP)
+- **Navigation**: Top menu bar provides access to Configuration, Status, and Firmware Update pages
+
+### Configuration Page
+
+The Configuration page (`/`) allows you to configure all VL53L1X sensor parameters:
+
+![VL53L1x Configuration Page](images/VL53L1xConfig.png)
+
+#### Distance Mode Settings
+- **Distance Mode**: SHORT (<1.3m) or LONG (<4m, default)
+- **Timing Budget**: 15, 20, 33, 50, 100 (default), 200, or 500 ms
+- **Inter-Measurement Period**: Minimum 15 ms, must be ≥ timing budget (default: 100 ms)
+
+#### Region of Interest (ROI) Settings
+- **ROI X Size**: 4-16 (default: 16)
+- **ROI Y Size**: 4-16 (default: 16)
+- **ROI Center SPAD**: 0-199 (default: 199 = center)
+
+#### Calibration Settings
+- **Offset (mm)**: -128 to +127 mm (default: 0)
+  - Use "Calibrate" button to perform offset calibration at a known target distance
+- **Xtalk (cps)**: 0-65535 cps (default: 0)
+  - Use "Calibrate" button to perform crosstalk calibration
+
+#### Threshold Settings
+- **Signal Threshold (kcps)**: 0-65535 kcps (default: 1024)
+- **Sigma Threshold (mm)**: 0-65535 mm (default: 15)
+- **Threshold Low (mm)**: 0-4000 mm (default: 0 = disabled)
+- **Threshold High (mm)**: 0-4000 mm (default: 0 = disabled)
+- **Threshold Window**: Below, Above, Out, or In (default: Below)
+
+#### Advanced Settings
+- **Interrupt Polarity**: Active Low or Active High (default: Active High)
+- **I2C Address**: 0x29-0x7F (default: 0x29)
+
+#### Configuration Management
+- **Save Configuration**: Saves current settings to NVS (persists across reboots)
+- **Load Current**: Reloads the current configuration from NVS
+- **Reset to Defaults**: Restores factory default values
+
+All configuration changes are validated before saving and are immediately applied to the sensor if it is initialized.
+
+### Status Page
+
+The Status page (`/status`) provides real-time sensor readings and visualization:
+
+#### Current Readings
+- **Distance (mm)**: Current measured distance
+- **Status**: Range status code (0 = valid)
+- **Ambient (kcps)**: Ambient light level
+- **Signal per SPAD (kcps/SPAD)**: Signal strength per SPAD
+- **Number of SPADs**: Active SPAD count
+
+#### Distance Over Time Chart
+- Interactive rolling line chart showing distance measurements over time
+- Displays the last 60 data points
+- Updates every 250 ms
+- Time-axis labels show measurement timestamps
+
+### Firmware Update Page
+
+The Firmware Update page (`/ota`) enables over-the-air (OTA) firmware updates:
+
+#### Update Process
+1. **Select Firmware File**: Click "Choose File" and select a `.bin` firmware file
+2. **Start Update**: Click "Start Update" to begin the upload
+3. **Progress**: The firmware is streamed to the device with progress tracking
+4. **Completion**: After successful upload, the device automatically reboots into the new firmware
+
+#### Update Requirements
+- Firmware file must be a valid ESP-IDF binary (`.bin` format)
+- Maximum file size: 2 MB
+- Device must have sufficient free space in the OTA partition
+- The device will automatically mark the new firmware as valid after reboot
+
+#### Post-Update Behavior
+- After reboot, the device validates the new firmware
+- If validation fails, the device automatically rolls back to the previous firmware
+- Successful updates persist across power cycles
+
+### Web API Endpoints
+
+The web server exposes RESTful API endpoints for programmatic access:
+
+#### Configuration API
+- **GET `/api/config`**: Retrieve current sensor configuration (JSON)
+- **POST `/api/config`**: Update sensor configuration (JSON body)
+
+#### Status API
+- **GET `/api/status`**: Get current sensor readings (JSON)
+- **GET `/api/assemblies`**: Get EtherNet/IP assembly data (JSON)
+
+#### Calibration API
+- **POST `/api/calibrate/offset`**: Perform offset calibration
+  - Body: `{"target_distance_mm": <value>}`
+  - Returns: `{"offset_mm": <calculated_offset>}`
+- **POST `/api/calibrate/xtalk`**: Perform crosstalk calibration
+  - Body: `{"target_distance_mm": <value>}`
+  - Returns: `{"xtalk_cps": <calculated_xtalk>}`
+
+#### OTA API
+- **POST `/api/ota/update`**: Upload firmware file (multipart/form-data)
+- **GET `/api/ota/status`**: Get OTA update status and progress
+
+## Modbus TCP Implementation
+
+The device includes a Modbus TCP server implementation that provides access to EtherNet/IP assembly data via the standard Modbus protocol.
+
+### Modbus TCP Server
+
+- **Port**: 502 (standard Modbus TCP port)
+- **Protocol**: Modbus TCP/IP (Modbus over TCP)
+- **Max Connections**: 5 concurrent clients
+- **Endianness**: Big-endian (Modbus standard)
+
+### Register Mapping
+
+The Modbus register map mirrors the EtherNet/IP assemblies:
+
+#### Input Registers (Read-Only)
+- **Address Range**: 0-15 (16 registers = 32 bytes)
+- **Maps to**: Input Assembly 100 (`g_assembly_data064`)
+- **Function Code**: 04 (Read Input Registers)
+
+**Register Layout:**
+| Register | Assembly Bytes | Description |
+|----------|----------------|-------------|
+| 0 | 0-1 | Distance (mm), 16-bit value |
+| 1 | 2-3 | Status (byte 2) + Ambient low byte (byte 3) |
+| 2 | 4-5 | Ambient high byte (byte 4) + Signal per SPAD low (byte 5) |
+| 3 | 6-7 | Signal per SPAD high (byte 6) + Number of SPADs low (byte 7) |
+| 4 | 8-9 | Number of SPADs high (byte 8) + Reserved (byte 9) |
+| 5-15 | 10-31 | Reserved/application data |
+
+**Note:** The mapping is byte-aligned, so some sensor fields span multiple registers. For convenience, you can read registers 0-4 to get all sensor data (distance, status, ambient, signal per SPAD, number of SPADs).
+
+#### Holding Registers (Read-Write)
+
+**Output Assembly Mapping (Registers 100-115)**
+- **Address Range**: 100-115 (16 registers = 32 bytes)
+- **Maps to**: Output Assembly 150 (`g_assembly_data096`)
+- **Function Codes**: 03 (Read Holding Registers), 06 (Write Single Register), 16 (Write Multiple Registers)
+
+**Configuration Assembly Mapping (Registers 150-154)**
+- **Address Range**: 150-154 (5 registers = 10 bytes)
+- **Maps to**: Configuration Assembly 151 (`g_assembly_data097`)
+- **Function Codes**: 03 (Read Holding Registers), 06 (Write Single Register), 16 (Write Multiple Registers)
+
+### Endianness Conversion
+
+The implementation automatically handles endianness conversion:
+- **EtherNet/IP Assemblies**: Store data in little-endian format (LSB first)
+- **Modbus TCP**: Transmits data in big-endian format (MSB first)
+- **Conversion**: Performed automatically during read/write operations
+
+### Example Modbus Client Usage
+
+#### Reading Distance (Input Register 0)
+```python
+from pymodbus.client import ModbusTcpClient
+
+client = ModbusTcpClient('192.168.1.100', port=502)
+client.connect()
+
+# Read distance (register 0, 16-bit value in big-endian format)
+result = client.read_input_registers(0, 1, unit=1)
+if not result.isError():
+    # pymodbus automatically converts big-endian bytes to integer
+    distance = result.registers[0]
+    print(f"Distance: {distance} mm")
+```
+
+#### Writing LED Control (Holding Register 100)
+```python
+# Write to Output Assembly 150, bit 0 (LED control)
+# Register 100 = first 16 bits of Output Assembly 150
+result = client.write_register(100, 0x0001, unit=1)  # Turn LED on
+```
+
+### Supported Modbus Function Codes
+
+| Function Code | Name | Description | Supported |
+|---------------|------|-------------|-----------|
+| 03 | Read Holding Registers | Read holding registers (100-115, 150-154) | Yes |
+| 04 | Read Input Registers | Read input registers (0-15) | Yes |
+| 06 | Write Single Register | Write single holding register | Yes |
+| 16 | Write Multiple Registers | Write multiple holding registers | Yes |
+
+### Thread Safety
+
+All register access is protected by mutexes to ensure thread-safe operation when accessed concurrently from:
+- EtherNet/IP cyclic I/O connections
+- Modbus TCP clients
+- Internal sensor task updates
+
 ## Enabled EtherNet/IP Objects
 - **Class 0x02 – Message Router**  
   Core message dispatch services for all explicit requests.

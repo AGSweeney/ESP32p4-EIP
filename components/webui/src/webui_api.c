@@ -3,7 +3,10 @@
 #include "ota_manager.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_system.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -190,6 +193,26 @@ static esp_err_t api_post_config_handler(httpd_req_t *req)
     return send_json_response(req, response, ESP_OK);
 }
 
+// POST /api/reboot - Reboot the device
+static esp_err_t api_reboot_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Reboot requested via web UI");
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "ok");
+    cJSON_AddStringToObject(response, "message", "Device rebooting...");
+    
+    esp_err_t ret = send_json_response(req, response, ESP_OK);
+    
+    // Give a small delay to ensure response is sent
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Reboot the device
+    esp_restart();
+    
+    return ret; // This will never be reached
+}
+
 // GET /api/status - Get sensor status and current readings
 static esp_err_t api_get_status_handler(httpd_req_t *req)
 {
@@ -207,17 +230,6 @@ static esp_err_t api_get_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(json, "ambient_kcps", ambient);
     cJSON_AddNumberToObject(json, "sig_per_spad_kcps", sig_per_spad);
     cJSON_AddNumberToObject(json, "num_spads", num_spads);
-    
-    // Get current configuration
-    vl53l1x_config_t config;
-    vl53l1x_config_get_defaults(&config);
-    vl53l1x_config_load(&config);
-    
-    cJSON *config_json = cJSON_CreateObject();
-    cJSON_AddNumberToObject(config_json, "distance_mode", config.distance_mode);
-    cJSON_AddNumberToObject(config_json, "timing_budget_ms", config.timing_budget_ms);
-    cJSON_AddNumberToObject(config_json, "inter_measurement_ms", config.inter_measurement_ms);
-    cJSON_AddItemToObject(json, "config", config_json);
     
     return send_json_response(req, json, ESP_OK);
 }
@@ -371,11 +383,13 @@ static esp_err_t api_calibrate_xtalk_handler(httpd_req_t *req)
 // POST /api/ota/update - Trigger OTA update (supports both URL and file upload)
 static esp_err_t api_ota_update_handler(httpd_req_t *req)
 {
+    ESP_LOGI(TAG, "OTA update request received");
+    
     // Check content type
-    char content_type[128];
+    char content_type[256];
     esp_err_t ret = httpd_req_get_hdr_value_str(req, "Content-Type", content_type, sizeof(content_type));
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Missing Content-Type header");
+        ESP_LOGE(TAG, "Missing Content-Type header (ret=%d)", ret);
         return send_json_error(req, "Missing Content-Type", 400);
     }
     
@@ -466,10 +480,14 @@ static esp_err_t api_ota_update_handler(httpd_req_t *req)
         size_t data_in_buffer = header_read - header_len;
         
         // Start streaming OTA update
-        // Note: content_len includes multipart headers, so we need to estimate firmware size
-        // For now, use partition size as max (will be validated by esp_ota_begin)
-        size_t expected_size = 0; // Let OTA manager use partition size
-        esp_ota_handle_t ota_handle = ota_manager_start_streaming_update(expected_size);
+        // Estimate firmware size: Content-Length minus multipart headers (typically ~1KB)
+        // This gives us a reasonable estimate for progress tracking
+        size_t estimated_firmware_size = 0;
+        if (content_len > 0) {
+            // Subtract estimated multipart header overhead (boundary + headers ~1KB)
+            estimated_firmware_size = (content_len > 1024) ? (content_len - 1024) : content_len;
+        }
+        esp_ota_handle_t ota_handle = ota_manager_start_streaming_update(estimated_firmware_size);
         if (ota_handle == 0) {
             ESP_LOGE(TAG, "Failed to start streaming OTA update - check serial logs for details");
             free(header_buffer);
@@ -543,18 +561,27 @@ static esp_err_t api_ota_update_handler(httpd_req_t *req)
         
         ESP_LOGI(TAG, "Streamed %d bytes to OTA partition", total_written);
         
-        // Finish OTA update (this will reboot)
-        if (!ota_manager_finish_streaming_update(ota_handle)) {
-            ESP_LOGE(TAG, "Failed to finish streaming OTA update");
-            return send_json_error(req, "Failed to finish OTA update", 500);
-        }
-        
+        // Finish OTA update (this will set boot partition and reboot)
+        // Send HTTP response BEFORE finishing, as the device will reboot
         cJSON *response = cJSON_CreateObject();
         cJSON_AddStringToObject(response, "status", "ok");
-        cJSON_AddStringToObject(response, "message", "OTA update started");
-        ESP_LOGI(TAG, "OTA update started successfully");
+        cJSON_AddStringToObject(response, "message", "Firmware uploaded successfully. Finishing update and rebooting...");
         
-        return send_json_response(req, response, ESP_OK);
+        // Send response first
+        esp_err_t resp_err = send_json_response(req, response, ESP_OK);
+        
+        // Small delay to ensure response is sent
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Now finish the update (this will reboot)
+        if (!ota_manager_finish_streaming_update(ota_handle)) {
+            ESP_LOGE(TAG, "Failed to finish streaming OTA update");
+            // Response already sent, but update failed - device will not reboot
+            return ESP_FAIL;
+        }
+        
+        // This should never be reached as ota_manager_finish_streaming_update() reboots
+        return resp_err;
     }
     
     // Handle URL-based update (existing JSON method)
@@ -714,5 +741,14 @@ void webui_register_api_handlers(httpd_handle_t server)
         .user_ctx  = NULL
     };
     httpd_register_uri_handler(server, &ota_status_uri);
+    
+    // POST /api/reboot
+    httpd_uri_t reboot_uri = {
+        .uri       = "/api/reboot",
+        .method    = HTTP_POST,
+        .handler   = api_reboot_handler,
+        .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &reboot_uri);
 }
 

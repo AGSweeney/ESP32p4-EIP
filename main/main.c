@@ -23,6 +23,7 @@
 #include "lwip/netif_pending_ip.h"
 #endif
 #include "nvs_flash.h"
+#include "esp_ota_ops.h"
 #include "opener.h"
 #include "nvtcpip.h"
 #include "ciptcpipinterface.h"
@@ -574,6 +575,23 @@ void app_main(void)
         nvs_ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvs_ret);
+    
+    // Mark the current running app as valid to allow OTA updates
+    // This must be done after NVS init and before any OTA operations
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running != NULL) {
+        esp_ota_img_states_t ota_state;
+        if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+            if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+                ESP_LOGI(TAG, "Marking OTA image as valid");
+                esp_err_t ret = esp_ota_mark_app_valid_cancel_rollback();
+                if (ret != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to mark app as valid: %s", esp_err_to_name(ret));
+                }
+            }
+        }
+    }
+    
     (void)NvTcpipLoad(&g_tcpip);
     ESP_LOGI(TAG, "After NV load select_acd=%d", g_tcpip.select_acd);
 

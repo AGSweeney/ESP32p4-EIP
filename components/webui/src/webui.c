@@ -61,9 +61,10 @@ bool webui_init(void)
     config.server_port = 80;
     config.max_uri_handlers = 20;
     config.max_open_sockets = 7;
-    config.stack_size = 8192;
+    config.stack_size = 16384; // Increased for large file uploads
     config.task_priority = 5;
     config.core_id = 1; // Run on Core 1 with sensor task
+    config.max_req_hdr_len = 1024; // Increased for multipart headers
 
     ESP_LOGI(TAG, "Starting HTTP server on port %d", config.server_port);
     

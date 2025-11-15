@@ -15,6 +15,8 @@ static ota_status_info_t s_ota_status = {0};
 static SemaphoreHandle_t s_ota_mutex = NULL;
 static TaskHandle_t s_ota_task_handle = NULL;
 static const esp_partition_t *s_update_partition = NULL; // Store partition being updated
+static size_t s_streaming_total_bytes = 0; // Total bytes written during streaming update
+static size_t s_streaming_expected_size = 0; // Expected total size for streaming update
 
 static void ota_task(void *pvParameters)
 {
@@ -488,6 +490,10 @@ esp_ota_handle_t ota_manager_start_streaming_update(size_t expected_size)
     // Store the partition pointer for use in finish
     s_update_partition = update_partition;
     
+    // Initialize streaming progress tracking
+    s_streaming_total_bytes = 0;
+    s_streaming_expected_size = ota_size; // Use partition size as expected size if not provided
+    
     // Update status
     s_ota_status.status = OTA_STATUS_IN_PROGRESS;
     s_ota_status.progress = 0;
@@ -514,9 +520,32 @@ bool ota_manager_write_streaming_chunk(esp_ota_handle_t ota_handle, const uint8_
         xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
         s_ota_status.status = OTA_STATUS_ERROR;
         snprintf(s_ota_status.message, sizeof(s_ota_status.message), "Write failed: %s", esp_err_to_name(err));
+        s_streaming_total_bytes = 0; // Reset streaming counters on error
+        s_streaming_expected_size = 0;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
+    
+    // Update progress tracking
+    xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
+    s_streaming_total_bytes += len;
+    
+    // Calculate progress percentage (0-100)
+    if (s_streaming_expected_size > 0) {
+        uint8_t progress = (uint8_t)((s_streaming_total_bytes * 100) / s_streaming_expected_size);
+        if (progress > 100) {
+            progress = 100; // Cap at 100%
+        }
+        s_ota_status.progress = progress;
+        snprintf(s_ota_status.message, sizeof(s_ota_status.message), 
+                "Uploading firmware... %d%% (%d/%d bytes)", 
+                progress, s_streaming_total_bytes, s_streaming_expected_size);
+    } else {
+        // If we don't know expected size, just show bytes written
+        snprintf(s_ota_status.message, sizeof(s_ota_status.message), 
+                "Uploading firmware... %d bytes written", s_streaming_total_bytes);
+    }
+    xSemaphoreGive(s_ota_mutex);
     
     return true;
 }
@@ -538,6 +567,8 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
         snprintf(s_ota_status.message, sizeof(s_ota_status.message), "OTA end failed: %s", esp_err_to_name(err));
         s_ota_task_handle = NULL;
         s_update_partition = NULL;
+        s_streaming_total_bytes = 0; // Reset streaming counters on error
+        s_streaming_expected_size = 0;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
@@ -549,6 +580,8 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
         s_ota_status.status = OTA_STATUS_ERROR;
         strcpy(s_ota_status.message, "Update partition not found");
         s_ota_task_handle = NULL;
+        s_streaming_total_bytes = 0; // Reset streaming counters on error
+        s_streaming_expected_size = 0;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
@@ -561,6 +594,8 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
         snprintf(s_ota_status.message, sizeof(s_ota_status.message), "Set boot partition failed: %s", esp_err_to_name(err));
         s_ota_task_handle = NULL;
         s_update_partition = NULL;
+        s_streaming_total_bytes = 0; // Reset streaming counters on error
+        s_streaming_expected_size = 0;
         xSemaphoreGive(s_ota_mutex);
         return false;
     }
@@ -572,9 +607,12 @@ bool ota_manager_finish_streaming_update(esp_ota_handle_t ota_handle)
     strcpy(s_ota_status.message, "Update complete, rebooting...");
     s_ota_task_handle = NULL;
     s_update_partition = NULL; // Clear partition pointer
+    s_streaming_total_bytes = 0; // Reset streaming counters
+    s_streaming_expected_size = 0;
     xSemaphoreGive(s_ota_mutex);
     
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    // Delay 3 seconds to allow web UI to poll and display completion status
+    vTaskDelay(pdMS_TO_TICKS(3000));
     esp_restart();
     
     return true;
