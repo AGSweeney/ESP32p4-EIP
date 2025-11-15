@@ -14,24 +14,8 @@ idf_component_register(
         nvs_flash
         webui
         modbus_tcp
+        system_config
         ota_manager
     PRIV_REQUIRES
-        bmi270
-        bno086
-        hc165
-        hc595
-        hx711
-        lsm6dsv16x
-        mcp23008
-        mcp23017
-        mcp3008
-        mcp3208
-        mcp4725
-        nau7802
-        pcf8574
-        pcf8575
-        tca9534
-        tca9555
-        vl53l0x
         vl53l1x_uld
 )

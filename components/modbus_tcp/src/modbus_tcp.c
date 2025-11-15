@@ -219,12 +219,14 @@ void modbus_tcp_stop(void)
     xSemaphoreTake(s_modbus_mutex, portMAX_DELAY);
     s_running = false;
     TaskHandle_t task_handle = s_server_task_handle;
-    xSemaphoreGive(s_modbus_mutex);
     
+    // Close socket with mutex protection
     if (s_listen_socket >= 0) {
         close(s_listen_socket);
         s_listen_socket = -1;
     }
+    
+    xSemaphoreGive(s_modbus_mutex);
     
     if (task_handle != NULL) {
         // Wait for task to finish (with timeout)

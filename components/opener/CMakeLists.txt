@@ -82,6 +82,7 @@ idf_component_register(
         esp_netif
         driver
         nvs_flash
+        system_config
     PRIV_REQUIRES
         lwip
         freertos

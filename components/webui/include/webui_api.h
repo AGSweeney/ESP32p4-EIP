@@ -29,6 +29,20 @@ const char *webui_get_index_html(void);
 const char *webui_get_status_html(void);
 
 /**
+ * @brief Get EtherNet/IP HTML page
+ * 
+ * @return HTML content as string
+ */
+const char *webui_get_ethernetip_html(void);
+
+/**
+ * @brief Get Input Assembly HTML page
+ * 
+ * @return HTML content as string
+ */
+const char *webui_get_input_assembly_html(void);
+
+/**
  * @brief Get OTA HTML page
  * 
  * @return HTML content as string

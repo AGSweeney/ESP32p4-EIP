@@ -20,12 +20,14 @@
 #include "driver/gpio.h"
 #include "esp_system.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "nvtcpip.h"
 #include "cipethernetlink.h"
 #include "generic_networkhandler.h"
 #include "vl53l1x.h"
 #include "VL53L1X_api.h"
 #include "sdkconfig.h"
+#include "system_config.h"
 
 struct netif;
 
@@ -45,13 +47,111 @@ static bool restart_pending = false;
 static EipUint32 s_active_io_connections = 0;
 static bool s_io_activity_seen = false;
 
+/* Mutexes for thread-safe access */
+static SemaphoreHandle_t s_assembly_mutex = NULL;  // Protects assembly data arrays
+static SemaphoreHandle_t s_sensor_state_mutex = NULL;  // Protects sensor state variables
+
 /* VL53L1x sensor handles */
 static vl53l1x_handle_t s_vl53l1x_handle = VL53L1X_INIT;
 static vl53l1x_device_handle_t s_vl53l1x_device = VL53L1X_DEVICE_INIT;
 static TaskHandle_t s_vl53l1x_task_handle = NULL;
+static bool s_sensor_enabled = true;  // Track sensor enabled state
+static uint8_t s_sensor_start_byte = 0;  // Track sensor data start byte offset
 
 // Export device handle for webui_api.c
 void *g_vl53l1x_device_handle = NULL;
+
+// Export mutex for webui_api.c and modbus_register_map.c
+SemaphoreHandle_t sample_application_get_assembly_mutex(void)
+{
+    return s_assembly_mutex;
+}
+
+// Function to set sensor enabled state (called from API)
+void sample_application_set_sensor_enabled(bool enabled)
+{
+    if (s_sensor_state_mutex == NULL) {
+        s_sensor_state_mutex = xSemaphoreCreateMutex();
+        if (s_sensor_state_mutex == NULL) {
+            OPENER_TRACE_ERR("Failed to create sensor state mutex\n");
+            return;
+        }
+    }
+    
+    xSemaphoreTake(s_sensor_state_mutex, portMAX_DELAY);
+    s_sensor_enabled = enabled;
+    uint8_t current_offset = s_sensor_start_byte;  // Copy while holding mutex
+    xSemaphoreGive(s_sensor_state_mutex);
+    
+    if (!enabled) {
+        // Zero out configured byte range when disabled (need assembly mutex)
+        if (s_assembly_mutex != NULL) {
+            xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+            memset(&g_assembly_data064[current_offset], 0, 9);
+            xSemaphoreGive(s_assembly_mutex);
+        } else {
+            memset(&g_assembly_data064[current_offset], 0, 9);
+        }
+    }
+}
+
+// Function to set sensor data start byte offset (called from API)
+void sample_application_set_sensor_byte_offset(uint8_t start_byte)
+{
+    // Validate: must be 0, 9, or 18
+    if (start_byte != 0 && start_byte != 9 && start_byte != 18) {
+        OPENER_TRACE_ERR("Invalid sensor byte offset: %d (must be 0, 9, or 18)\n", start_byte);
+        return;
+    }
+    
+    if (s_sensor_state_mutex == NULL) {
+        s_sensor_state_mutex = xSemaphoreCreateMutex();
+        if (s_sensor_state_mutex == NULL) {
+            OPENER_TRACE_ERR("Failed to create sensor state mutex\n");
+            return;
+        }
+    }
+    
+    xSemaphoreTake(s_sensor_state_mutex, portMAX_DELAY);
+    uint8_t old_offset = s_sensor_start_byte;
+    
+    // Zero out the old byte range before changing to the new one
+    if (s_sensor_start_byte != start_byte) {
+        OPENER_TRACE_INFO("Changing sensor byte offset from %d to %d, zeroing old range\n", 
+                         s_sensor_start_byte, start_byte);
+        xSemaphoreGive(s_sensor_state_mutex);  // Release before assembly access
+        
+        // Zero old range with assembly mutex
+        if (s_assembly_mutex != NULL) {
+            xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+            memset(&g_assembly_data064[old_offset], 0, 9);
+            xSemaphoreGive(s_assembly_mutex);
+        } else {
+            memset(&g_assembly_data064[old_offset], 0, 9);
+        }
+        
+        xSemaphoreTake(s_sensor_state_mutex, portMAX_DELAY);
+    }
+    
+    s_sensor_start_byte = start_byte;
+    xSemaphoreGive(s_sensor_state_mutex);
+    
+    OPENER_TRACE_INFO("Sensor data start byte offset set to %d (bytes %d-%d)\n", 
+                     start_byte, start_byte, start_byte + 8);
+}
+
+// Function to get sensor data start byte offset (called from API)
+uint8_t sample_application_get_sensor_byte_offset(void)
+{
+    if (s_sensor_state_mutex == NULL) {
+        return s_sensor_start_byte;  // Return current value if mutex not initialized
+    }
+    
+    xSemaphoreTake(s_sensor_state_mutex, portMAX_DELAY);
+    uint8_t offset = s_sensor_start_byte;
+    xSemaphoreGive(s_sensor_state_mutex);
+    return offset;
+}
 
 static void IdentityEnter(CipIdentityState state,
                           CipIdentityExtendedStatus ext_status) {
@@ -184,46 +284,79 @@ static void vl53l1x_sensor_task(void *pvParameters) {
   const TickType_t loop_delay_ticks = pdMS_TO_TICKS(100); /* 10 Hz update rate (100ms) */
   
   while (1) {
-    if (s_vl53l1x_handle.initialized) {
-      /* Read complete result structure */
-      VL53L1X_Result_t result;
-      VL53L1X_ERROR api_status = VL53L1X_GetResult(s_vl53l1x_device.dev, &result);
-      
-      if (api_status == VL53L1X_ERROR_NONE) {
-        /* Write distance to bytes 0-1 of input assembly (little-endian) */
-        g_assembly_data064[0] = (uint8_t)(result.Distance & 0xFF);
-        g_assembly_data064[1] = (uint8_t)((result.Distance >> 8) & 0xFF);
+    // Read sensor state with mutex protection
+    bool sensor_enabled;
+    uint8_t sensor_offset;
+    if (s_sensor_state_mutex != NULL) {
+      xSemaphoreTake(s_sensor_state_mutex, portMAX_DELAY);
+      sensor_enabled = s_sensor_enabled;
+      sensor_offset = s_sensor_start_byte;
+      xSemaphoreGive(s_sensor_state_mutex);
+    } else {
+      sensor_enabled = s_sensor_enabled;
+      sensor_offset = s_sensor_start_byte;
+    }
+    
+    if (sensor_enabled) {
+      if (s_vl53l1x_handle.initialized) {
+        /* Read complete result structure */
+        VL53L1X_Result_t result;
+        VL53L1X_ERROR api_status = VL53L1X_GetResult(s_vl53l1x_device.dev, &result);
         
-        /* Write Status, Ambient, SigPerSPAD, NumSPADs starting at byte 2 */
-        g_assembly_data064[2] = result.Status;  /* Byte 2: Status */
-        
-        /* Bytes 3-4: Ambient (little-endian) */
-        g_assembly_data064[3] = (uint8_t)(result.Ambient & 0xFF);
-        g_assembly_data064[4] = (uint8_t)((result.Ambient >> 8) & 0xFF);
-        
-        /* Bytes 5-6: SigPerSPAD (little-endian) */
-        g_assembly_data064[5] = (uint8_t)(result.SigPerSPAD & 0xFF);
-        g_assembly_data064[6] = (uint8_t)((result.SigPerSPAD >> 8) & 0xFF);
-        
-        /* Bytes 7-8: NumSPADs (little-endian) */
-        g_assembly_data064[7] = (uint8_t)(result.NumSPADs & 0xFF);
-        g_assembly_data064[8] = (uint8_t)((result.NumSPADs >> 8) & 0xFF);
-        
-        /* Clear interrupt after reading */
-        VL53L1X_ClearInterrupt(s_vl53l1x_device.dev);
-        
-        /* Optional: Log every 10 readings (1 second at 10Hz) */
-        static uint32_t log_counter = 0;
-        if (++log_counter >= 10) {
-          log_counter = 0;
-          OPENER_TRACE_INFO("VL53L1x: Distance=%d mm, Status=%d, Ambient=%d, SigPerSPAD=%d, NumSPADs=%d\n",
-                           result.Distance, result.Status, result.Ambient, result.SigPerSPAD, result.NumSPADs);
+        if (api_status == VL53L1X_ERROR_NONE) {
+          /* Write sensor data to assembly with mutex protection */
+          if (s_assembly_mutex != NULL) {
+            xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+          }
+          
+          /* Write distance to bytes offset+0 and offset+1 of input assembly (little-endian) */
+          g_assembly_data064[sensor_offset + 0] = (uint8_t)(result.Distance & 0xFF);
+          g_assembly_data064[sensor_offset + 1] = (uint8_t)((result.Distance >> 8) & 0xFF);
+          
+          /* Write Status, Ambient, SigPerSPAD, NumSPADs starting at offset+2 */
+          g_assembly_data064[sensor_offset + 2] = result.Status;  /* Status */
+          
+          /* Bytes offset+3 to offset+4: Ambient (little-endian) */
+          g_assembly_data064[sensor_offset + 3] = (uint8_t)(result.Ambient & 0xFF);
+          g_assembly_data064[sensor_offset + 4] = (uint8_t)((result.Ambient >> 8) & 0xFF);
+          
+          /* Bytes offset+5 to offset+6: SigPerSPAD (little-endian) */
+          g_assembly_data064[sensor_offset + 5] = (uint8_t)(result.SigPerSPAD & 0xFF);
+          g_assembly_data064[sensor_offset + 6] = (uint8_t)((result.SigPerSPAD >> 8) & 0xFF);
+          
+          /* Bytes offset+7 to offset+8: NumSPADs (little-endian) */
+          g_assembly_data064[sensor_offset + 7] = (uint8_t)(result.NumSPADs & 0xFF);
+          g_assembly_data064[sensor_offset + 8] = (uint8_t)((result.NumSPADs >> 8) & 0xFF);
+          
+          if (s_assembly_mutex != NULL) {
+            xSemaphoreGive(s_assembly_mutex);
+          }
+          
+          /* Clear interrupt after reading */
+          VL53L1X_ClearInterrupt(s_vl53l1x_device.dev);
+          
+          /* Optional: Log every 10 readings (1 second at 10Hz) */
+          static uint32_t log_counter = 0;
+          if (++log_counter >= 10) {
+            log_counter = 0;
+            OPENER_TRACE_INFO("VL53L1x: Distance=%d mm, Status=%d, Ambient=%d, SigPerSPAD=%d, NumSPADs=%d\n",
+                             result.Distance, result.Status, result.Ambient, result.SigPerSPAD, result.NumSPADs);
+          }
+        } else {
+          OPENER_TRACE_WARN("VL53L1x GetResult failed: %d\n", api_status);
         }
       } else {
-        OPENER_TRACE_WARN("VL53L1x GetResult failed: %d\n", api_status);
+        OPENER_TRACE_WARN("VL53L1x not initialized\n");
       }
     } else {
-      OPENER_TRACE_WARN("VL53L1x not initialized\n");
+      /* Sensor is disabled - zero out configured byte range */
+      if (s_assembly_mutex != NULL) {
+        xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+        memset(&g_assembly_data064[sensor_offset], 0, 9);
+        xSemaphoreGive(s_assembly_mutex);
+      } else {
+        memset(&g_assembly_data064[sensor_offset], 0, 9);
+      }
     }
     
     vTaskDelay(loop_delay_ticks);
@@ -253,7 +386,26 @@ EipStatus ApplicationInitialization(void) {
   CipRunIdleHeaderSetT2O(false);
   ConfigureStatusLed();
 
-  /* Create VL53L1x sensor task on Core 1 */
+  /* Initialize mutexes */
+  s_assembly_mutex = xSemaphoreCreateMutex();
+  if (s_assembly_mutex == NULL) {
+    OPENER_TRACE_ERR("Failed to create assembly mutex\n");
+  }
+  
+  s_sensor_state_mutex = xSemaphoreCreateMutex();
+  if (s_sensor_state_mutex == NULL) {
+    OPENER_TRACE_ERR("Failed to create sensor state mutex\n");
+  }
+
+  /* Load sensor enabled state from NVS and initialize */
+  s_sensor_enabled = system_sensor_enabled_load();
+  sample_application_set_sensor_enabled(s_sensor_enabled);
+  
+  /* Load sensor data start byte offset from NVS */
+  s_sensor_start_byte = system_sensor_byte_offset_load();
+  sample_application_set_sensor_byte_offset(s_sensor_start_byte);
+  
+  /* Create VL53L1x sensor task on Core 1 (always create, task checks enabled state) */
   BaseType_t sensor_task_result = xTaskCreatePinnedToCore(
     vl53l1x_sensor_task,
     "VL53L1x_Sensor",
@@ -264,7 +416,8 @@ EipStatus ApplicationInitialization(void) {
     1);    /* Core 1 */
   
   if (sensor_task_result == pdPASS) {
-    OPENER_TRACE_INFO("VL53L1x sensor task created on Core 1\n");
+    OPENER_TRACE_INFO("VL53L1x sensor task created on Core 1 (enabled=%s)\n", 
+                     s_sensor_enabled ? "yes" : "no");
   } else {
     OPENER_TRACE_ERR("Failed to create VL53L1x sensor task\n");
   }

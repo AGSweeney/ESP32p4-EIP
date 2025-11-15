@@ -9,9 +9,10 @@ extern uint8_t g_assembly_data064[32];  // Input Assembly 100
 extern uint8_t g_assembly_data096[32];  // Output Assembly 150
 extern uint8_t g_assembly_data097[10];  // Config Assembly 151
 
+// Forward declaration for shared assembly mutex
+extern SemaphoreHandle_t sample_application_get_assembly_mutex(void);
+
 static const char *TAG = "modbus_regmap";
-static SemaphoreHandle_t s_assembly_mutex = NULL;
-static SemaphoreHandle_t s_mutex_init_mutex = NULL;
 
 // Register address ranges
 #define INPUT_REG_START        0
@@ -37,19 +38,9 @@ static uint16_t big_endian_to_little_endian(uint16_t be_value)
     return ((be_value & 0xFF) << 8) | ((be_value >> 8) & 0xFF);
 }
 
-static void ensure_assembly_mutex(void)
+static SemaphoreHandle_t get_assembly_mutex(void)
 {
-    if (s_assembly_mutex == NULL) {
-        if (s_mutex_init_mutex == NULL) {
-            s_mutex_init_mutex = xSemaphoreCreateMutex();
-        }
-        if (xSemaphoreTake(s_mutex_init_mutex, portMAX_DELAY) == pdTRUE) {
-            if (s_assembly_mutex == NULL) {
-                s_assembly_mutex = xSemaphoreCreateMutex();
-            }
-            xSemaphoreGive(s_mutex_init_mutex);
-        }
-    }
+    return sample_application_get_assembly_mutex();
 }
 
 bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t *data)
@@ -60,13 +51,13 @@ bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t
         return false;
     }
     
-    ensure_assembly_mutex();
-    if (s_assembly_mutex == NULL) {
+    SemaphoreHandle_t assembly_mutex = get_assembly_mutex();
+    if (assembly_mutex == NULL) {
         ESP_LOGE(TAG, "Assembly mutex not initialized");
         return false;
     }
     
-    xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+    xSemaphoreTake(assembly_mutex, portMAX_DELAY);
     
     // Map Input Assembly 100 (32 bytes = 16 registers) to Modbus Input Registers 0-15
     // Assembly data is stored as little-endian bytes [low_byte, high_byte]
@@ -91,7 +82,7 @@ bool modbus_read_input_registers(uint16_t start_addr, uint16_t quantity, uint8_t
         }
     }
     
-    xSemaphoreGive(s_assembly_mutex);
+    xSemaphoreGive(assembly_mutex);
     return true;
 }
 
@@ -99,12 +90,12 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
 {
     // Check if address is in output assembly range (100-115)
     if (start_addr >= HOLDING_REG_OUTPUT_START && start_addr + quantity <= HOLDING_REG_OUTPUT_END + 1) {
-        ensure_assembly_mutex();
-        if (s_assembly_mutex == NULL) {
+        SemaphoreHandle_t assembly_mutex = get_assembly_mutex();
+        if (assembly_mutex == NULL) {
             return false;
         }
         
-        xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+        xSemaphoreTake(assembly_mutex, portMAX_DELAY);
         
         // Map Output Assembly 150 (32 bytes = 16 registers) to Modbus Holding Registers 100-115
         // Assembly data is stored as little-endian bytes [low_byte, high_byte]
@@ -129,18 +120,18 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
             }
         }
         
-        xSemaphoreGive(s_assembly_mutex);
+        xSemaphoreGive(assembly_mutex);
         return true;
     }
     
     // Check if address is in config assembly range (150-154)
     if (start_addr >= HOLDING_REG_CONFIG_START && start_addr + quantity <= HOLDING_REG_CONFIG_END + 1) {
-        ensure_assembly_mutex();
-        if (s_assembly_mutex == NULL) {
+        SemaphoreHandle_t assembly_mutex = get_assembly_mutex();
+        if (assembly_mutex == NULL) {
             return false;
         }
         
-        xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+        xSemaphoreTake(assembly_mutex, portMAX_DELAY);
         
         // Map Config Assembly 151 (10 bytes = 5 registers) to Modbus Holding Registers 150-154
         // Assembly data is stored as little-endian bytes [low_byte, high_byte]
@@ -164,7 +155,7 @@ bool modbus_read_holding_registers(uint16_t start_addr, uint16_t quantity, uint8
             }
         }
         
-        xSemaphoreGive(s_assembly_mutex);
+        xSemaphoreGive(assembly_mutex);
         return true;
     }
     
@@ -183,12 +174,12 @@ bool modbus_write_holding_registers(uint16_t start_addr, uint16_t quantity, cons
 {
     // Check if address is in output assembly range (100-115)
     if (start_addr >= HOLDING_REG_OUTPUT_START && start_addr + quantity <= HOLDING_REG_OUTPUT_END + 1) {
-        ensure_assembly_mutex();
-        if (s_assembly_mutex == NULL) {
+        SemaphoreHandle_t assembly_mutex = get_assembly_mutex();
+        if (assembly_mutex == NULL) {
             return false;
         }
         
-        xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+        xSemaphoreTake(assembly_mutex, portMAX_DELAY);
         
         // Map Modbus Holding Registers 100-115 to Output Assembly 150 (32 bytes = 16 registers)
         uint16_t reg_offset = start_addr - HOLDING_REG_OUTPUT_START;
@@ -204,19 +195,19 @@ bool modbus_write_holding_registers(uint16_t start_addr, uint16_t quantity, cons
             }
         }
         
-        xSemaphoreGive(s_assembly_mutex);
+        xSemaphoreGive(assembly_mutex);
         
         return true;
     }
     
     // Check if address is in config assembly range (150-154)
     if (start_addr >= HOLDING_REG_CONFIG_START && start_addr + quantity <= HOLDING_REG_CONFIG_END + 1) {
-        ensure_assembly_mutex();
-        if (s_assembly_mutex == NULL) {
+        SemaphoreHandle_t assembly_mutex = get_assembly_mutex();
+        if (assembly_mutex == NULL) {
             return false;
         }
         
-        xSemaphoreTake(s_assembly_mutex, portMAX_DELAY);
+        xSemaphoreTake(assembly_mutex, portMAX_DELAY);
         
         // Map Modbus Holding Registers 150-154 to Config Assembly 151 (10 bytes = 5 registers)
         uint16_t reg_offset = start_addr - HOLDING_REG_CONFIG_START;
@@ -231,7 +222,7 @@ bool modbus_write_holding_registers(uint16_t start_addr, uint16_t quantity, cons
             }
         }
         
-        xSemaphoreGive(s_assembly_mutex);
+        xSemaphoreGive(assembly_mutex);
         return true;
     }
     

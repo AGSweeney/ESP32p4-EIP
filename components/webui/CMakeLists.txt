@@ -11,5 +11,9 @@ idf_component_register(
         vl53l1x_config
         json
         ota_manager
+        system_config
+        modbus_tcp
+        lwip
+        opener
 )
 

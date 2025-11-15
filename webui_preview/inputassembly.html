@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Input Assembly Status</title><style>* { box-sizing: border-box; }body { padding: 0; margin: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }.navbar { background-color: #212529; padding: 15px 0; margin-bottom: 20px; }.navbar-nav { display: flex; flex-direction: row; list-style: none; margin: 0; padding: 0 20px; justify-content: flex-start; align-items: center; width: 100%; }.navbar-nav li { margin: 0 15px; }.navbar-nav a { color: #ffffff; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 4px; transition: background-color 0.2s; }.navbar-nav a:hover { background-color: rgba(255, 255, 255, 0.1); }.navbar-nav a.active { background-color: #007bff; }.navbar-nav li.sensor-nav-item { display: none; }.content-wrapper { padding: 20px; }.container { max-width: 800px; background: white; padding: 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 0 auto; overflow: hidden; }.page-header { background-color: #f8f9fa; padding: 20px 30px; border-bottom: 1px solid #dee2e6; }.page-header h1 { margin: 0; color: #212529; font-size: 1.75rem; font-weight: 700; text-transform: uppercase; }.page-content { padding: 30px; }.status-card { border: 1px solid #ddd; border-radius: 8px; padding: 0; margin-bottom: 20px; background-color: #fff; overflow: hidden; }.card-header { background-color: #f8f9fa; padding: 15px 20px; border-bottom: 1px solid #dee2e6; margin: 0; }.card-header h2, .card-header h3 { margin: 0; color: #212529; font-size: 1.25rem; font-weight: 600; }.card-body { padding: 20px; }.status-value { font-size: 24px; font-weight: bold; color: #007bff; }.bytes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }.byte-row { margin-bottom: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 4px; }.byte-label { font-weight: 600; color: #495057; margin-bottom: 8px; font-size: 14px; }.bit-checkbox { width: 18px; height: 18px; margin: 0 2px; cursor: not-allowed; pointer-events: none; vertical-align: middle; appearance: none; -webkit-appearance: none; -moz-appearance: none; border: 1px solid #adb5bd; border-radius: 3px; position: relative; }.bit-checkbox:checked { background-color: #007bff !important; border-color: #007bff !important; }.bit-checkbox:checked::after { content: '✓'; color: #fff; font-size: 12px; font-weight: bold; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); line-height: 1; }.bit-checkbox:not(:checked) { background-color: #e9ecef !important; border-color: #adb5bd !important; }.bit-checkbox[disabled] { opacity: 1; }.bit-label { font-size: 11px; color: #6c757d; margin: 0 2px; }.bits-container { display: flex; align-items: center; flex-wrap: wrap; }@media (max-width: 768px) { .bytes-grid { grid-template-columns: 1fr; } }</style></head><body><nav class="navbar"><ul class="navbar-nav"><li><a href="index.html">Configuration</a></li><li class="sensor-nav-item"><a href="status.html">VL53L1x</a></li><li><a href="inputassembly.html" class="active">T->O</a></li><li><a href="outputassembly.html">O->T</a></li><li><a href="ota.html">Firmware Update</a></li></ul></nav><div class="content-wrapper"><div class="container"><div class="page-header"><h1>EtherNet/IP Input Assembly</h1></div><div class="page-content"><div style="margin-bottom: 20px; padding: 12px; background-color: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px;"><p style="margin: 0; color: #495057; font-size: 14px; line-height: 1.6;"><strong>Input Assembly 100:</strong> This page displays the current state of the EtherNet/IP Input Assembly (T->O, Target to Output). This 32-byte assembly contains data sent from the device to the EtherNet/IP scanner. Each byte is displayed in both hexadecimal and decimal format, with individual bits shown as checkboxes. Blue checkboxes indicate active (set) bits, while gray checkboxes indicate inactive (cleared) bits. Data updates automatically every 250ms.</p></div><div class="status-card"><div class="card-header"><h3>Input Assembly 100</h3></div><div class="card-body"><p><strong>Assembly Size:</strong> 32 bytes | <strong>Status:</strong> <span id="input_status">Active</span></p><div class="bytes-grid" id="bytes_container"></div></div></div></div><footer style="text-align: center; padding: 20px 30px; border-top: 1px solid #dee2e6; color: #666; background-color: #f8f9fa;">OpENer Ethernet/IP for ESP32-P4 | Adam G Sweeney 11-15-2025</footer></div></div><script>function createByteRow(byteIndex, byteValue) {  const row = document.createElement('div');  row.className = 'byte-row';  const hexValue = '0x' + byteValue.toString(16).padStart(2, '0').toUpperCase();  const decValue = byteValue.toString().padStart(3, '0');  row.innerHTML = '<div class="byte-label">Byte ' + byteIndex + ' HEX (' + hexValue + ') | DEC ' + decValue + '</div>';    const bitsContainer = document.createElement('div');  bitsContainer.className = 'bits-container';    for (let bit = 7; bit >= 0; bit--) {    const bitValue = (byteValue >> bit) & 1;    const checkbox = document.createElement('input');    checkbox.type = 'checkbox';    checkbox.className = 'bit-checkbox';    checkbox.id = 'byte' + byteIndex + '_bit' + bit;    checkbox.checked = bitValue === 1;    checkbox.disabled = true;        const label = document.createElement('span');    label.className = 'bit-label';    label.textContent = bit;        bitsContainer.appendChild(checkbox);    bitsContainer.appendChild(label);  }    row.appendChild(bitsContainer);  return row;}function updateStatus() {  fetch('/api/status')    .then(r => {      if (!r.ok) {        throw new Error('HTTP ' + r.status);      }      return r.json();    })    .then(data => {      if (data.input_assembly_100 && data.input_assembly_100.raw_bytes) {        const container = document.getElementById('bytes_container');        if (container) {          container.innerHTML = '';          for (let i = 0; i < data.input_assembly_100.raw_bytes.length; i++) {            const byteValue = data.input_assembly_100.raw_bytes[i];            const row = createByteRow(i, byteValue);            container.appendChild(row);          }        }      }    })    .catch(err => {      console.error('Status update error:', err);    });}updateStatus();function updateNavigationBar() {  fetch('/api/sensor/enabled')    .then(r => {      if (!r.ok) throw new Error('HTTP ' + r.status);      return r.json();    })    .then(data => {      const navItems = document.querySelectorAll('nav li.sensor-nav-item');      navItems.forEach(item => {        if (item) {          item.style.display = data.enabled ? 'block' : 'none';        }      });    })    .catch(err => {      console.error('Failed to update navigation bar:', err);    });}updateNavigationBar();setInterval(updateStatus, 250);</script>
+<script>
+// Dummy data for preview
+const dummyInputData = {
+  input_assembly_100: {
+    raw_bytes: [
+      0xD4, 0x04, 0x00, 0x2A, 0x00, 0x1E, 0x00, 0x10, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00
+    ]
+  }
+};
+
+// Override updateStatus to use dummy data when API fails
+(function() {
+  const originalUpdateStatus = window.updateStatus;
+  window.updateStatus = function() {
+    fetch('/api/status')
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        if (data.input_assembly_100 && data.input_assembly_100.raw_bytes) {
+          const container = document.getElementById('bytes_container');
+          if (container) {
+            container.innerHTML = '';
+            for (let i = 0; i < data.input_assembly_100.raw_bytes.length; i++) {
+              const byteValue = data.input_assembly_100.raw_bytes[i];
+              const row = createByteRow(i, byteValue);
+              container.appendChild(row);
+            }
+          }
+        }
+      })
+      .catch(err => {
+        // Use dummy data when API fails (preview mode)
+        console.log('Using dummy data for preview');
+        const container = document.getElementById('bytes_container');
+        if (container && typeof createByteRow === 'function') {
+          container.innerHTML = '';
+          for (let i = 0; i < dummyInputData.input_assembly_100.raw_bytes.length; i++) {
+            const byteValue = dummyInputData.input_assembly_100.raw_bytes[i];
+            const row = createByteRow(i, byteValue);
+            container.appendChild(row);
+          }
+        }
+      });
+  };
+})();
+</script>
+</body></html>

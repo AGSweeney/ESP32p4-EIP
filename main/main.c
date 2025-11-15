@@ -32,6 +32,7 @@
 #include "webui.h"
 #include "modbus_tcp.h"
 #include "ota_manager.h"
+#include "system_config.h"
 
 void SampleApplicationSetActiveNetif(struct netif *netif);
 void SampleApplicationNotifyLinkUp(void);
@@ -554,13 +555,21 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGW(TAG, "Failed to initialize Web UI");
         }
         
-        // Initialize and start ModbusTCP server
-        if (!modbus_tcp_init()) {
-            ESP_LOGW(TAG, "Failed to initialize ModbusTCP");
-        } else {
-            if (!modbus_tcp_start()) {
-                ESP_LOGW(TAG, "Failed to start ModbusTCP server");
+        // Check NVS for Modbus enabled state before starting
+        bool modbus_enabled = system_modbus_enabled_load();
+        if (modbus_enabled) {
+            // Initialize and start ModbusTCP server
+            if (!modbus_tcp_init()) {
+                ESP_LOGW(TAG, "Failed to initialize ModbusTCP");
+            } else {
+                if (!modbus_tcp_start()) {
+                    ESP_LOGW(TAG, "Failed to start ModbusTCP server");
+                } else {
+                    ESP_LOGI(TAG, "ModbusTCP server started (enabled in NVS)");
+                }
             }
+        } else {
+            ESP_LOGI(TAG, "ModbusTCP server disabled (per NVS setting)");
         }
     } else {
         ESP_LOGE(TAG, "Failed to find netif");
