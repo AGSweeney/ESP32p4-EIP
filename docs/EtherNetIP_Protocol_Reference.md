@@ -736,13 +736,10 @@ Format: [Port, Link, ...] Class, Instance, Attribute
 
 ## References
 
-- **ODVA EtherNet/IP Specification**: Official protocol specification
-- **CIP Specification**: Common Industrial Protocol specification
 - **OpENer Stack**: Open-source EtherNet/IP implementation
 - **Hilscher EtherNet/IP Scanner Protocol API V2.10.0**: Source document for this reference
 
 ---
 
-*Last Updated: Based on Hilscher EtherNet/IP Scanner Protocol API V2.10.0*  
 *Project: ESP32-P4 EtherNet/IP Adapter Implementation*
 
